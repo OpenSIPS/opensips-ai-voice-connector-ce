@@ -1,9 +1,13 @@
 """ This module is an example of how to define functions
     that can be called by the OpenAI API. """
 
+import asyncio
 import json
 import logging
+import os
 from datetime import datetime
+import websocket
+from opensips.mi import OpenSIPSMI, OpenSIPSMIException
 
 # This list of functions is used to define the available functions
 # that can be called by the OpenAI API.
@@ -30,6 +34,131 @@ FUNCTIONS = [
     {
         "name": "get_welcome_message",
         "description": "Use this function to get a welcome message. It takes no parameters.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "add_product",
+        "description": "Use this function to buy a product. It takes 2 parameters: "
+                       "quantity, an integer value that indicates "
+                       "the quantity of the product to buy, "
+                       "and variant_id, a string value that indicates "
+                       "the variant ID of the product to buy."
+                       "You can use the following variant IDs:"
+                       "1 piece Banana: 50617331155287"
+                       "1 piece Tomato: 50617331188055"
+                       "Ale Beer: 50617331450199"
+                       "Golden Apple: 50617331548503"
+                       "Greece Olive Oil: '50617331319127"
+                       "Green Apple: 50617331515735"
+                       "IPA Beer: 50617331384663"
+                       "Italy Olive Oil: 50617331253591"
+                       "Lager Beer: 50617331417431"
+                       "Red Apple: 50617331482967"
+                       "Spain Olive Oil: 50617331286359"
+                       "Confirm the action after executing it.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "quantity": {
+                    "type": "integer",
+                    "description": "The quantity of the product to buy."
+                },
+                "variant_id": {
+                    "type": "string",
+                    "description": "The variant ID of the product to buy."
+                }
+            },
+            "required": [
+                "quantity",
+                "variant_id"
+            ]
+        }
+    },
+    {
+        "name": "remove_product",
+        "description": "Use this function to remove a product. It takes 2 parameters: "
+                       "quantity, an integer value that indicates "
+                       "the quantity of the product to remove, "
+                       "and variant_id, a string value that indicates "
+                       "the variant ID of the product to remove."
+                       "You can use the same variant IDs as in the buy_product function."
+                       "It is possible that the user will ask to remove all pieces of a product, "
+                       "so you should figure out how many pieces are in the cart "
+                       "and remove them all."
+                       "Confirm the action after executing it.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "quantity": {
+                    "type": "integer",
+                    "description": "The quantity of the product to remove."
+                },
+                "variant_id": {
+                    "type": "string",
+                    "description": "The variant ID of the product to remove."
+                }
+            },
+            "required": [
+                "quantity",
+                "variant_id"
+            ]
+        }
+    },
+    {
+        "name": "update_cart",
+        "description":
+            "Use this function when you are asked to perform multiple actions on the cart. "
+            "It should take a list of products to add or remove "
+            "and a list of quantities (add as positive integers "
+            "and remove as negative integers). "
+            "The function should be able to handle multiple products and quantities at once. "
+            "Use the same variant IDs as in the add_product and remove_product functions."
+            "Confirm the action after executing it.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "products": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "description": "The variant ID of the product to add or remove."
+                    }
+                },
+                "quantities": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer",
+                        "description": "The quantity of the product to add or remove."
+                    }
+                }
+            },
+            "required": [
+                "products",
+                "quantities"
+            ]
+        }
+    },
+    {
+        "name": "get_cart",
+        "description":
+            "Use this function to get the current cart."
+            "Use it also to find the total price of the cart."
+            "It takes no parameters.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "transfer_call",
+        "description":
+            "call the function if a request was received"
+            "to transfer a call with an operator, a person",
         "parameters": {
             "type": "object",
             "properties": {},
@@ -70,3 +199,123 @@ def get_welcome_message(engine, arguments):  # pylint: disable=unused-argument
     # args = json.loads(arguments)
     welcome_message = "Welcome to the system!"
     logging.info("Welcome message: %s", welcome_message)
+
+
+def add_product(engine, arguments):  # pylint: disable=unused-argument
+    """ This function is used to buy a product. """
+    args = json.loads(arguments)
+    quantity = args.get("quantity", 1)
+    variant_id = args.get("variant_id", "50617331155287")
+    ws = websocket.create_connection("ws://localhost:8000")
+    ws.send(json.dumps(
+        {
+            "action": "add_to_cart",
+            "quantity": quantity,
+            "variant_id": variant_id
+        }
+    ))
+    ws.close()
+
+
+def remove_product(engine, arguments):  # pylint: disable=unused-argument
+    """ This function is used to remove a product. """
+    args = json.loads(arguments)
+    quantity = args.get("quantity", 1)
+    variant_id = args.get("variant_id", "50617331155287")
+    ws = websocket.create_connection("ws://localhost:8000")
+    ws.send(json.dumps(
+        {
+            "action": "remove_from_cart",
+            "quantity": quantity,
+            "variant_id": variant_id
+        }
+    ))
+    ws.close()
+
+
+def update_cart(engine, arguments):  # pylint: disable=unused-argument
+    """ This function is used to """
+    args = json.loads(arguments)
+    products = args.get("products", [])
+    quantities = args.get("quantities", [])
+    products_dict = dict(zip(products, quantities))
+
+    ws = websocket.create_connection("ws://localhost:8000")
+    ws.send(json.dumps(
+        {
+            "action": "update_cart",
+            "products": products_dict
+        }
+    ))
+    ws.close()
+
+
+def get_cart(engine, arguments):  # pylint: disable=unused-argument
+    """ This function is used to get the current cart. """
+    ws = websocket.create_connection("ws://localhost:8000")
+    ws.send(json.dumps(
+        {
+            "action": "get_cart"
+        }
+    ))
+    response = ws.recv()
+    logging.info("Current cart: %s", response)
+    asyncio.create_task(engine.ws.send(json.dumps(
+        {
+            "type": "response.create",
+            "response": {
+                "instructions":
+                    "Please tell the user the following content of its shopping cart: "
+                    f"{response}"
+                    "Do not call the get_cart function again as it was already called."
+                    "When the title contain 'piece', it means it is sold as 1 piece of the product,"
+                    "so tell the title without the 'piece' word."
+            }
+        }
+    )))
+    ws.close()
+
+
+FS_IP = os.getenv("HOST_IP", "127.0.0.1")
+FS_PORT = int(os.getenv("FS_SIP_PORT", "5660"))
+OS_MI_PORT = int(os.getenv("OS_MI_PORT", "9080"))
+
+
+def transfer_call(engine, arguments):  # pylint: disable=unused-argument
+    """ This function is used to transfer a call. """
+    mi = OpenSIPSMI("datagram", datagram_ip='127.0.0.1',
+                    datagram_port=OS_MI_PORT)
+    try:
+        response = mi.execute(
+            "media_exchange_from_call_to_uri",
+            {
+                "callid": engine.call.call_id,
+                "uri": f"sip:operator@{FS_IP}:{FS_PORT}",
+                "leg": "callee",
+                "headers": f"X-Call-CallID: {engine.call.call_id}\r\n",
+                "nohold": 1
+            }
+        )
+    except OpenSIPSMIException as e:
+        logging.error("Error: %s", e)
+        return
+    logging.info("Response: %s", response)
+
+    asyncio.create_task(engine.ws.send(json.dumps(
+        {
+            "type": "session.update",
+            "session": {
+                "instructions":
+                    "From now on, you will attend the call between the user and the operator."
+                    "Keep quiet, you can still call functions."
+                    "When you do this please give them a confirmation message."
+                    "You will hear two voices, the user and the operator, talking alternatively."
+                    "You should figure out who is who by the context of the conversation."
+                    "You cannot call terminate_call function anymore, or transfer_call function."
+                    "Only cart related functions are allowed to be called."
+                    "Call the function when you hear the confirmation from the operator,"
+                    "not when the user is asking for it.",
+                "modalities": ["text"]
+            }
+        }
+    )))

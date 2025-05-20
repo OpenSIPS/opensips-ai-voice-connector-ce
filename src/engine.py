@@ -35,7 +35,7 @@ from call import Call
 from config import Config
 from codec import UnsupportedCodec
 from utils import UnknownSIPUser
-import utils as utils
+import utils
 
 
 mi_cfg = Config.get("opensips")
@@ -45,6 +45,11 @@ mi_port = int(mi_cfg.get("port", "MI_PORT", "8080"))
 mi_conn = OpenSIPSMI(conn="datagram", datagram_ip=mi_ip, datagram_port=mi_port)
 
 calls = {}
+
+NEW_CALL = {"deepgram": Call,
+            "deepgram_native": Call,
+            "openai": Call,
+            "azure": Call}
 
 
 def mi_reply(key, method, code, reason, body=None):
@@ -67,13 +72,15 @@ def fetch_bot_config(api_url, bot):
     :return: The configuration dictionary if successful, otherwise None.
     """
     try:
-        response = requests.post(api_url, json={"bot": bot})
+        response = requests.post(api_url, json={"bot": bot}, timeout=5)
         if response.status_code == 200:
             return response.json()
-        else:
-            logging.exception(f"Failed to fetch data from API. Status: {response.status_code}, Message: {response.text}")
+        logging.exception(
+            "Failed to fetch data from API. Status: %s, Message: %s",
+            response.status_code, response.text
+        )
     except requests.RequestException as e:
-        logging.exception(f"Error during API call: {e}")
+        logging.exception("Error during API call: %s", e)
     return None
 
 
@@ -85,6 +92,7 @@ def parse_params(params):
     cfg = None
     bot = utils.get_user(params)
     to = utils.get_to(params)
+    call_id = utils.get_call_id(params)
     if bot and api_url:
         bot_data = fetch_bot_config(api_url, bot)
         if bot_data:
@@ -103,74 +111,83 @@ def parse_params(params):
         else:
             cfg.update(extra_params[flavor])
 
-    return flavor, to, cfg
+    return flavor, to, cfg, call_id
 
 
-def handle_call(call, key, method, params):
+def handle_invite(call, key, method, params):
+    """ Handles an INVITE request """
+    if 'body' not in params:
+        mi_reply(key, method, 415, 'Unsupported Media Type')
+        return
+
+    sdp_str = params['body']
+    # remove rtcp line, since the parser throws an error on it
+    sdp_str = "\n".join([line for line in sdp_str.split("\n")
+                         if not line.startswith("a=rtcp:")])
+    sdp = SessionDescription.parse(sdp_str)
+
+    if call:
+        # handle in-dialog re-INVITE
+        direction = sdp.media[0].direction
+        if not direction or direction == "sendrecv":
+            call.resume(sdp)
+        else:
+            call.pause(sdp)
+        try:
+            mi_reply(key, method, 200, 'OK', call.get_body())
+        except OpenSIPSMIException:
+            logging.exception("Error sending response")
+        return
+
+    try:
+        flavor, to, cfg, call_id = parse_params(params)
+        logging.info("Flavor: %s, To: %s, Call-ID: %s",
+                     flavor, to, call_id)
+        new_call = NEW_CALL[flavor](
+            key, mi_conn, sdp, flavor, to, call_id, cfg)
+        calls[key] = new_call
+        mi_reply(key, method, 200, 'OK', new_call.get_body())
+    except UnsupportedCodec:
+        logging.exception("Unsupported codec")
+        mi_reply(key, method, 488, 'Not Acceptable Here')
+    except UnknownSIPUser as e:
+        logging.exception("Unknown SIP user: %s", e)
+        mi_reply(key, method, 404, 'Not Found')
+    except OpenSIPSMIException:
+        logging.exception("Error sending response")
+        mi_reply(key, method, 500, 'Server Internal Error')
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.exception("Error creating call %s", e)
+        mi_reply(key, method, 500, 'Server Internal Error')
+
+
+def handle_call(call, key, method, params):  # pylint: disable=too-many-branches
     """ Handles a SIP call """
 
     if method == 'INVITE':
-        if 'body' not in params:
-            mi_reply(key, method, 415, 'Unsupported Media Type')
-            return
+        handle_invite(call, key, method, params)
+        return
 
-        sdp_str = params['body']
-        # remove rtcp line, since the parser throws an error on it
-        sdp_str = "\n".join([line for line in sdp_str.split("\n")
-                             if not line.startswith("a=rtcp:")])
-        sdp = SessionDescription.parse(sdp_str)
-
-        if call:
-            # handle in-dialog re-INVITE
-            direction = sdp.media[0].direction
-            if not direction or direction == "sendrecv":
-                call.resume()
-            else:
-                call.pause()
-            try:
-                mi_reply(key, method, 200, 'OK', call.get_body())
-            except OpenSIPSMIException:
-                logging.exception("Error sending response")
-            return
-
-        try:
-            flavor, to, cfg = parse_params(params)
-            new_call = Call(key, mi_conn, sdp, flavor, to, cfg)
-            calls[key] = new_call
-            mi_reply(key, method, 200, 'OK', new_call.get_body())
-        except UnsupportedCodec:
-            mi_reply(key, method, 488, 'Not Acceptable Here')
-        except UnknownSIPUser:
-            logging.exception("Unknown SIP user %s")
-            mi_reply(key, method, 404, 'Not Found')
-        except OpenSIPSMIException:
-            logging.exception("Error sending response")
-            mi_reply(key, method, 500, 'Server Internal Error')
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            logging.exception("Error creating call %s", e)
-            mi_reply(key, method, 500, 'Server Internal Error')
-    
-    elif method == 'NOTIFY':
+    if method == 'NOTIFY':
         mi_reply(key, method, 200, 'OK')
         sub_state = utils.get_header(params, "Subscription-State")
         if "terminated" in sub_state:
-            call.terminated = True
-    
+            call.paused = True
+
     elif method == 'BYE':
         asyncio.create_task(call.close())
         calls.pop(key, None)
-    
+
     if not call:
         try:
             mi_reply(key, method, 405, 'Method not supported')
         except OpenSIPSMIException as e:
-            logging.error(f"Failed to send reply {key}, {method}: {e}")
+            logging.error("Failed to send reply %s, %s: %s", key, method, e)
         return
 
 
 def udp_handler(data):
     """ UDP handler of events received """
-
     if 'params' not in data:
         return
     params = data['params']
@@ -204,7 +221,7 @@ async def shutdown(s, loop, event):
     for call in calls.values():
         if call.terminated:
             continue
-        await call.close()
+        call.terminate()
     try:
         event.unsubscribe()
     except OpenSIPSEventException as e:

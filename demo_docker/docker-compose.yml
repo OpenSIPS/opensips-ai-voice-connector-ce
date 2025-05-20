@@ -1,0 +1,32 @@
+services:
+  opensips:
+    container_name: ai-voice-connector-opensips
+    image: opensips/opensips:latest
+    volumes:
+      - ./os:/etc/opensips/
+    network_mode: host
+    command: -p /etc/opensips/substenv.sh
+    env_file:
+      - .env
+
+  b2b_opensips:
+    container_name: ai-voice-connector-b2b_opensips
+    image: opensips/opensips:latest
+    volumes:
+      - ./b2b:/etc/opensips/
+    network_mode: host
+    command: -p /etc/opensips/substenv.sh
+    env_file:
+      - .env
+
+  freeswitch:
+    container_name: ai-voice-connector-freeswitch
+    image: opensips/freeswitch-ce
+    cap_add:
+      - SYS_NICE
+    volumes:
+      - ./fs/dialplan:/etc/freeswitch/dialplan
+      - ./fs/entrypoint.d:/docker-entrypoint.d
+    network_mode: host
+    env_file:
+      - .env

@@ -29,6 +29,7 @@ import datetime
 from queue import Queue, Empty
 from aiortc.sdp import SessionDescription
 from config import Config
+from codec import UnsupportedCodec
 
 from rtp import decode_rtp_packet, generate_rtp_packet
 from utils import get_ai
@@ -54,6 +55,7 @@ class Call():  # pylint: disable=too-many-instance-attributes
                  sdp: SessionDescription,
                  flavor: str,
                  to: str,
+                 call_id: str,
                  cfg):
         host_ip = rtp_cfg.get('bind_ip', 'RTP_BIND_IP', '0.0.0.0')
         try:
@@ -64,6 +66,7 @@ class Call():  # pylint: disable=too-many-instance-attributes
 
         self.b2b_key = b2b_key
         self.mi_conn = mi_conn
+        self.call_id = call_id
 
         if sdp.media[0].host:
             self.client_addr = sdp.media[0].host
@@ -126,22 +129,34 @@ class Call():  # pylint: disable=too-many-instance-attributes
 
         return sdp
 
-    def resume(self):
+    def set_client(self, sdp):
+        """ Sets the client address and port """
+        if sdp.media[0].host:
+            self.client_addr = sdp.media[0].host
+        else:
+            self.client_addr = sdp.host
+        self.client_port = sdp.media[0].port
+
+    def resume(self, sdp):
         """ Resumes the call's audio """
-        if not self.paused:
-            return
         logging.info("resuming %s", self.b2b_key)
+        try:
+            self.ai.codec = self.ai.choose_codec(sdp)
+        except UnsupportedCodec:
+            logging.error("Unsupported codec %s", sdp.media[0].rtp.codecs)
+            return
         self.paused = False
         self.sdp.media[0].direction = "sendrecv"
+        self.set_client(sdp)
 
-    def pause(self):
+    def pause(self, sdp):
         """ Pauses the call's audio """
         if self.paused:
             return
         logging.info("pausing %s", self.b2b_key)
         self.sdp.media[0].direction = "recvonly"
-
         self.paused = True
+        self.set_client(sdp)
 
     def read_rtp(self):
         """ Reads a RTP packet """

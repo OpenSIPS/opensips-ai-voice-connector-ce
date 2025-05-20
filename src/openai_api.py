@@ -245,7 +245,6 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
                 for packet in packets:
                     self.queue.put_nowait(packet)
             elif t == "response.audio.done":
-                logging.info(t)
                 if len(leftovers) > 0:
                     packet = await self.run_in_thread(
                         self.codec.parse, None, leftovers)
@@ -260,6 +259,8 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
             elif t == "response.audio_transcript.done":
                 logging.info("Engine: %s", msg["transcript"])
             elif t == "response.function_call_arguments.done":
+                logging.info("Calling function %s with arguments %s",
+                             msg["name"], msg["arguments"])
                 if func := self.find_tool(msg["name"]):
                     try:
                         func(self, msg["arguments"])
@@ -271,7 +272,7 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
             elif t == "error":
                 logging.info(msg)
             else:
-                logging.info(t)
+                logging.debug(t)
 
     def find_tool(self, name):
         """ Finds a tool by name """
@@ -334,6 +335,7 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
             self.terminate_call()
 
     async def close(self):
+        """ Closes the connection """
         await self.ws.close()
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

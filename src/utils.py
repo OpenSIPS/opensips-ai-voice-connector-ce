@@ -60,6 +60,11 @@ def get_to(params):
     return Address.parse(to_line)
 
 
+def get_call_id(params):
+    """ Returns the Call-ID line parameters """
+    return get_header(params, "Call-ID")
+
+
 def indialog(params):
     """ indicates whether the message is an in-dialog one """
     if 'headers' not in params:
