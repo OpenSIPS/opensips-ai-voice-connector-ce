@@ -25,7 +25,7 @@ services:
     cap_add:
       - SYS_NICE
     volumes:
-      - ./fs/dialplan:/etc/freeswitch/dialplan
+      - ./fs/dialplan:/tmp/dialplan
       - ./fs/entrypoint.d:/docker-entrypoint.d
     network_mode: host
     env_file:

@@ -1,0 +1,17 @@
+<include>
+    <context name="public">
+        <extension name="operator">
+            <condition field="destination_number" expression="^operator$">
+                <!--These params effect the outcalls made once you join-->
+                <action application="set" data="sip_exclude_contact=${network_addr}"/>
+                <action application="set" data="conference_auto_outcall_timeout=5"/>
+                <action application="set" data="conference_max_members=3"/>
+                <action application="set" data="conference_utils_auto_outcall_flags=mintwo"/>
+                <action application="log" data="INFO SIP IP=${sip_received_ip}, PORT=${sip_received_port}"/>
+                <action application="conference_set_auto_outcall" data="['origination_caller_id_number=ai_agent,sip_h_X-Call-CallId=${sip_h_X-Call-CallId}']sofia/internal/OP@${sip_received_ip}:${sip_received_port}"/>
+                <action application="conference_set_auto_outcall" data="['origination_caller_id_number=operator,sip_h_X-Call-CallId=${sip_h_X-Call-CallId}']sofia/internal/CALL@${sip_received_ip}:${sip_received_port}"/>
+                <action application="conference" data="CONF_${sip_h_X-Conf-CallId}@default+flags{endconf}"/>
+            </condition>
+        </extension>
+    </context>
+</include>

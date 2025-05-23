@@ -7,7 +7,8 @@ import logging
 import os
 from datetime import datetime
 import websocket
-from opensips.mi import OpenSIPSMI, OpenSIPSMIException
+from opensips.mi import OpenSIPSMI
+from dotenv import load_dotenv
 
 # This list of functions is used to define the available functions
 # that can be called by the OpenAI API.
@@ -276,28 +277,40 @@ def get_cart(engine, arguments):  # pylint: disable=unused-argument
     ws.close()
 
 
-FS_IP = os.getenv("HOST_IP", "127.0.0.1")
-FS_PORT = int(os.getenv("FS_SIP_PORT", "5660"))
-OS_MI_PORT = int(os.getenv("OS_MI_PORT", "9080"))
-
-
 def transfer_call(engine, arguments):  # pylint: disable=unused-argument
     """ This function is used to transfer a call. """
-    mi = OpenSIPSMI("datagram", datagram_ip='127.0.0.1',
-                    datagram_port=OS_MI_PORT)
     try:
+
+        load_dotenv("./demo_docker/.env")
+        fs_ip = os.getenv("HOST_IP")
+        fs_port = int(os.getenv("FS_SIP_PORT"))
+        os_mi_port = int(os.getenv("OS_MI_PORT"))
+
+        mi = OpenSIPSMI("datagram", datagram_ip='127.0.0.1',
+                        datagram_port=os_mi_port)
+
         response = mi.execute(
             "media_exchange_from_call_to_uri",
             {
                 "callid": engine.call.call_id,
-                "uri": f"sip:operator@{FS_IP}:{FS_PORT}",
+                "uri": f"sip:operator@{fs_ip}:{fs_port}",
                 "leg": "callee",
                 "headers": f"X-Call-CallID: {engine.call.call_id}\r\n",
                 "nohold": 1
             }
         )
-    except OpenSIPSMIException as e:
+    except Exception as e:  # pylint: disable=broad-except
         logging.error("Error: %s", e)
+        asyncio.create_task(engine.ws.send(json.dumps(
+            {
+                "type": "response.create",
+                "response": {
+                    "instructions":
+                        "Please tell the user that the transfer was not successful."
+                        "Please try again later."
+                }
+            }
+        )))
         return
     logging.info("Response: %s", response)
 
