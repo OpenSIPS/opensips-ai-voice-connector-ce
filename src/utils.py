@@ -42,15 +42,38 @@ class UnknownSIPUser(Exception):
 
 
 def get_header(params, header):
-    """ Returns a specific line from headers """
+    """Returns a specific line from headers, supporting both long and compact forms."""
     if 'headers' not in params:
         return None
-    hdr_lines = [line for line in params['headers'].splitlines()
-                 if re.match(f"{header}:", line, re.I)]
-    if len(hdr_lines) == 0:
+    compact_map = {
+        'From': 'f',
+        'To': 't',
+        'Call-ID': 'i',
+        'Contact': 'm',
+        'Via': 'v',
+        'CSeq': 'c',
+        'Content-Length': 'l',
+        'Supported': 'k'
+    }
+    header_list = [header]
+    if header in compact_map:
+        header_list.append(compact_map[header])
+    header_pat = re.compile(rf"^({'|'.join(re.escape(h) for h in header_list)}):", re.I)
+    hdr_lines = [line for line in params['headers'].splitlines() if header_pat.match(line)]
+    if not hdr_lines:
         return None
     return hdr_lines[0].split(":", 1)[1].strip()
 
+
+def get_address(params, header):
+    """ 
+    Returns the To line parameters
+    header - To or From
+    """
+    addr_line = get_header(params, header)
+    if not addr_line:
+        return None
+    return Address.parse(addr_line)
 
 def get_to(params):
     """ Returns the To line parameters """
@@ -64,7 +87,7 @@ def indialog(params):
     """ indicates whether the message is an in-dialog one """
     if 'headers' not in params:
         return False
-    to = get_to(params)
+    to = get_address(params, "To")
     if not to:
         return False
     params = to.parameters
@@ -73,11 +96,14 @@ def indialog(params):
     return False
 
 
-def get_user(params):
-    """ Returns the User from the SIP headers """
+def get_user(params, header):
+    """ 
+    Returns the User from the SIP headers
+    header - To or From
+    """
 
-    to = get_to(params)
-    return to.uri.user.lower() if to.uri else None
+    adr = get_address(params, header)
+    return adr.uri.user.lower() if adr.uri else None
 
 
 def _dialplan_match(regex, string):
@@ -102,7 +128,7 @@ def get_ai_flavor_default(user):
 def get_ai_flavor(params):
     """ Returns the AI flavor to be used """
 
-    user = get_user(params)
+    user = get_user(params, "To")
     if not user:
         raise UnknownSIPUser("cannot parse username")
 

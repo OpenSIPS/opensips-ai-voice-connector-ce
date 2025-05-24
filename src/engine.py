@@ -60,14 +60,14 @@ def mi_reply(key, method, code, reason, body=None):
 
 def fetch_bot_config(api_url, bot):
     """
-    Sends a POST request to the API to fetch the bot configuration.
+    Sends a GET request to the API to fetch the bot configuration.
 
     :param api_url: URL of the API endpoint.
     :param bot: Name of the bot to fetch configuration for.
     :return: The configuration dictionary if successful, otherwise None.
     """
     try:
-        response = requests.post(api_url, json={"bot": bot})
+        response = requests.get(api_url, params={"bot": bot})
         if response.status_code == 200:
             return response.json()
         else:
@@ -82,9 +82,11 @@ def parse_params(params):
     flavor = None
     extra_params = None
     api_url = Config.engine("api_url", "API_URL")
+    bot_header = Config.engine("bot_header", "BOT_HEADER", "To")
     cfg = None
-    bot = utils.get_user(params)
-    to = utils.get_to(params)
+    bot = utils.get_user(params, bot_header)
+    to = utils.get_address(params, "To")
+    user = utils.get_user(params, "From")
     if bot and api_url:
         bot_data = fetch_bot_config(api_url, bot)
         if bot_data:
@@ -103,7 +105,7 @@ def parse_params(params):
         else:
             cfg.update(extra_params[flavor])
 
-    return flavor, to, cfg
+    return flavor, to, user, cfg
 
 
 def handle_call(call, key, method, params):
@@ -134,8 +136,8 @@ def handle_call(call, key, method, params):
             return
 
         try:
-            flavor, to, cfg = parse_params(params)
-            new_call = Call(key, mi_conn, sdp, flavor, to, cfg)
+            flavor, to, user, cfg = parse_params(params)
+            new_call = Call(key, mi_conn, sdp, flavor, to, user, cfg)
             calls[key] = new_call
             mi_reply(key, method, 200, 'OK', new_call.get_body())
         except UnsupportedCodec:

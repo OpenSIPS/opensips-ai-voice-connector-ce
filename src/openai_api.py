@@ -26,6 +26,7 @@ OpenAI WS communication
 import json
 import base64
 import logging
+import requests
 import asyncio
 from queue import Empty
 from websockets.asyncio.client import connect
@@ -34,9 +35,11 @@ from ai import AIEngine
 from codec import get_codecs, CODECS, UnsupportedCodec
 from config import Config
 
+import dify
+
 OPENAI_API_MODEL = "gpt-4o-realtime-preview-2024-10-01"
 OPENAI_URL_FORMAT = "wss://api.openai.com/v1/realtime?model={}"
-
+DIFY_API_URL = "https://api.dify.ai/v1"
 
 class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
 
@@ -51,6 +54,9 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.intro = None
         self.transfer_to = None
         self.transfer_by = None
+        self.tools = None
+        self.dify_url = None
+        self.dify_key = None
         self.cfg = Config.get("openai", cfg)
         self.model = self.cfg.get("model", "OPENAI_API_MODEL",
                                   OPENAI_API_MODEL)
@@ -63,6 +69,13 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.intro = self.cfg.get("welcome_message", "OPENAI_WELCOME_MSG")
         self.transfer_to = self.cfg.get("transfer_to", "OPENAI_TRANSFER_TO")
         self.transfer_by = self.cfg.get("transfer_by", "OPENAI_TRANSFER_BY", self.call.to)
+        self.tools = self.cfg.get("tools", "OPENAI_TOOLS")
+        self.dify_url = self.cfg.get("dify_url")
+        self.dify_key = self.cfg.get("dify_key")
+        if not self.dify_url or not self.dify_key:
+            self.dify_cfg = Config.get("dify")
+            self.dify_url = self.dify_cfg.get("dify_url", "DIFY_API_URL", DIFY_API_URL)
+            self.dify_key = self.dify_cfg.get("dify_key", "DIFY_API_KEY")
 
         # normalize codec
         if self.codec.name == "mulaw":
@@ -155,7 +168,7 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
                         "required": []
                     }
                 },
-            ],
+            ] + self.tools,
             "tool_choice": "auto",
         }
         if self.instructions:
@@ -201,25 +214,69 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
             elif t == "conversation.item.created":
                 if msg["item"].get('status') == "completed":
                     self.drain_queue()
+
+            # function-calling response 
+            # https://platform.openai.com/docs/guides/realtime-conversations#function-calling
+            elif t == "response.done":
+                response = msg["response"]
+                for item in response["output"]:
+                    if item.get('type') == 'function_call':
+                        function_name = item.get("name")
+                        arguments = item.get("arguments", "{}")
+                        try:
+                            params_dict = json.loads(arguments)
+                        except Exception:
+                            params_dict = {}
+                        function_response = None
+                        if function_name == "terminate_call":
+                            logging.info(t)
+                            self.terminate_call()
+                        elif function_name == "transfer_call":
+                            params = {
+                                'key': self.call.b2b_key,
+                                'method': "REFER",
+                                'body': "",
+                                'extra_headers': (
+                                    f"Refer-To: <{self.transfer_to}>\r\n"
+                                    f"Referred-By: {self.transfer_by}\r\n"
+                                )
+                            }
+                            self.call.mi_conn.execute('ua_session_update', params)
+
+                        else:
+                            # if dify.ai workflow is connected
+                            if self.dify_url and self.dify_key:
+                                dify_client = dify.WorkflowClient(self.dify_key, self.dify_url)
+                                inputs = {
+                                    "client_phone": self.call.user,
+                                    "function_name": function_name, 
+                                    **params_dict
+                                    }
+                                try:
+                                    workflow_resp = dify_client.run(inputs, response_mode="blocking", user=response.get("conversation_id"))
+                                    workflow_resp.raise_for_status()
+                                    dify_resp = workflow_resp.json()
+                                    function_response = dify_resp.get("data", {}).get("outputs", {})
+                                except requests.RequestException as e:
+                                    logging.error(f"HTTP error occurred: {e}")
+                                    function_response = f"Eroor: {workflow_resp.json()}"
+
+                        if function_response:
+                            payload = {
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "function_call_output",
+                                    "call_id": item.get("call_id"),
+                                    "output": f"Say this to the user: {function_response}"
+                                }
+                            }
+                            await self.ws.send(json.dumps(payload))
+                            await self.ws.send(json.dumps({"type": "response.create"}))
+
             elif t == "conversation.item.input_audio_transcription.completed":
                 logging.info("Speaker: %s", msg["transcript"].rstrip())
             elif t == "response.audio_transcript.done":
-                logging.info("Engine: %s", msg["transcript"])
-            elif t == "response.function_call_arguments.done":
-                if msg["name"] == "terminate_call":
-                    logging.info(t)
-                    self.terminate_call()
-                elif msg["name"] == "transfer_call":
-                    params = {
-                        'key': self.call.b2b_key,
-                        'method': "REFER",
-                        'body': "",
-                        'extra_headers': (
-                            f"Refer-To: <{self.transfer_to}>\r\n"
-                            f"Referred-By: {self.transfer_by}\r\n"
-                        )
-                    }
-                    self.call.mi_conn.execute('ua_session_update', params)
+                logging.info("Engine: %s", msg["transcript"])            
 
             elif t == "error":
                 logging.info(msg)

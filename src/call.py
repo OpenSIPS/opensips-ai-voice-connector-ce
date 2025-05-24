@@ -53,6 +53,7 @@ class Call():  # pylint: disable=too-many-instance-attributes
                  sdp: SessionDescription,
                  flavor: str,
                  to: str,
+                 user: str,
                  cfg):
         host_ip = rtp_cfg.get('bind_ip', 'RTP_BIND_IP', '0.0.0.0')
         try:
@@ -77,6 +78,7 @@ class Call():  # pylint: disable=too-many-instance-attributes
         self.stop_event.clear()
 
         self.to = to
+        self.user = user
         self.sdp = sdp
         self.ai = get_ai(flavor, self, cfg)
 
