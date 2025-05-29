@@ -4,3 +4,5 @@ openai
 opensips>=0.1.3
 sipmessage
 requests
+azure-cognitiveservices-speech==1.42.0
+websockets
