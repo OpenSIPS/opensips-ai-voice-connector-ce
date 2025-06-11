@@ -32,7 +32,7 @@ from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from ai import AIEngine
 from config import Config
 
-DEEPGRAM_VOICE_AGENT_URL = "wss://agent.deepgram.com/agent"
+DEEPGRAM_VOICE_AGENT_URL = "wss://agent.deepgram.com/v1/agent/converse"
 
 
 class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
@@ -40,14 +40,17 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
     """ Implements WS communication with Deepgram """
 
     def __init__(self, call, cfg):
+        self.priority = ["pcmu", "pcma"]
         self.codec = self.choose_codec(call.sdp)
         self.queue = call.rtp
         self.call = call
         self.ws = None
         self.session = None
         self.intro = None
-        self.cfg = Config.get("deepgram_native", cfg)
+        self.default_cfg = Config.get("deepgram", cfg)
+        self.cfg = Config.get("deepgram_native", self.default_cfg)
         self.key = self.cfg.get("key", "DEEPGRAM_API_KEY")
+        logging.info(self.key)
         self.stt_model = self.cfg.get(
             "speech_model", "DEEPGRAM_NATIVE_SPEECH_MODEL", "nova-3")
         self.tts_model = self.cfg.get(
@@ -74,7 +77,7 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
         """ Starts Deepgram Voice Agent connection and logs messages """
         logging.info("Starting Deepgram Native")
         deepgram_headers = {
-            "Authorization": "Token {self.key}"
+            "Authorization": f"token {self.key}"
         }
         self.ws = await connect(DEEPGRAM_VOICE_AGENT_URL, additional_headers=deepgram_headers)
         try:
@@ -88,14 +91,20 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
             return
 
         self.session = {
-            "type": "SettingsConfiguration",
+            "type": "Settings",
             "agent": {
                 "listen": {
-                    "model": self.stt_model
+                    "provider": {
+                        "type": "deepgram",
+                        "model": self.stt_model
+                    }
                 },
                 "think": {},
                 "speak": {
-                    "model": self.tts_model
+                    "provider": {
+                        "type": "deepgram",
+                        "model": self.tts_model
+                    }
                 }
             },
             "audio": {
@@ -105,14 +114,13 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
                 },
                 "output": {
                     "encoding": self.get_audio_format(),
-                    "sample_rate": self.codec.sample_rate,
-                    "container": "none"
+                    "sample_rate": self.codec.sample_rate
                 }
             }
         }
 
         if self.instructions:
-            self.session["agent"]["think"]["instructions"] = self.instructions
+            self.session["agent"]["think"]["prompt"] = self.instructions
 
         if self.llm_url:
             if not self.llm_key:
@@ -139,9 +147,12 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
             self.session["agent"]["think"]["provider"] = {
                 "type": "open_ai"
             }
-            self.session["agent"]["think"]["model"] = self.llm_model if self.llm_model else "gpt-4o"
+            if self.llm_model:
+                self.session["agent"]["think"]["provider"]["model"] = self.llm_model
+            else:
+                self.session["agent"]["think"]["provider"]["model"] = "gpt-4o"
 
-        logging.info("Sending session: {self.session}")
+        logging.info("Sending session: %s", self.session)
 
         try:
             await self.ws.send(json.dumps(self.session))
@@ -176,7 +187,7 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
                         self.queue.put_nowait(packet)
                 else:
                     msg = json.loads(smsg)
-                    logging.info("Received message: {msg}")
+                    logging.info("Received message: %s", msg)
                     t = msg["type"]
                     if t == "AgentAudioDone":
                         if len(leftovers) > 0:
