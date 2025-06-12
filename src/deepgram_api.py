@@ -46,7 +46,7 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
     chatgpt = None
 
     def __init__(self, call, cfg):
-
+        self.priority = ["opus", "pcmu", "pcma"]
         self.cfg = Config.get("deepgram", cfg)
         chatgpt_key = self.cfg.get(["chatgpt_key", "openai_key"],
                                    ["CHATGPT_API_KEY", "OPENAI_API_KEY"])
@@ -59,9 +59,11 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
                                                     "DEEPGRAM_API_KEY"))
         self.language = self.cfg.get("language", "DEEPGRAM_LANGUAGE", "en-US")
         self.model = self.cfg.get("speech_model", "DEEPGRAM_SPEECH_MODEL",
-                                  "nova-2-conversationalai")
+                                  "nova-3")
         self.voice = self.cfg.get("voice", "DEEPGRAM_VOICE", "aura-asteria-en")
         self.intro = self.cfg.get("welcome_message", "DEEPGRAM_WELCOME_MSG")
+        self.instructions = self.cfg.get(
+            "instructions", "DEEPGRAM_INSTRUCTIONS")
 
         self.b2b_key = call.b2b_key
         self.codec = self.choose_codec(call.sdp)
@@ -74,7 +76,7 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.buf = []
         sentences = self.buf
         call_ref = self
-        Deepgram.chatgpt.create_call(self.b2b_key, self.intro)
+        Deepgram.chatgpt.create_call(self.b2b_key, self.instructions)
 
         async def on_text(__, result, **_):
             sentence = result.channel.alternatives[0].transcript
@@ -109,7 +111,7 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
                 container=self.codec.container)
         else:
             self.speak_options = SpeakOptions(
-                model="aura-asteria-en",
+                model=self.voice,
                 encoding=self.codec.name,
                 sample_rate=self.codec.sample_rate,
                 container=self.codec.container)

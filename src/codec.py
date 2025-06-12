@@ -65,12 +65,14 @@ class Opus(GenericCodec):
         self.container = 'ogg'
 
     async def process_response(self, response, queue):
+        leftovers = b''
         async for data in response.aiter_bytes():
-            for packet in self.parse(data, None):
+            packets, leftovers = self.parse(data, leftovers)
+            for packet in packets:
                 queue.put_nowait(packet)
 
     def parse(self, data, leftovers):
-        return OggOpus(data).packets()
+        return OggOpus(data, leftovers).packets()
 
     def get_silence(self):
         return b'\xf8\xff\xfe'

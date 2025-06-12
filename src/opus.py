@@ -42,6 +42,14 @@ class OggOpusPage:
         self.page = payload[0:page_len]
         self.segments_payload = self.page[header_len:]
         self.segments = []
+        expected_len = sum(self.segments_lens)
+        actual_len = len(self.segments_payload)
+
+        if actual_len < expected_len:
+            raise OggPageException(
+                f"Opus page {
+                    self.sequence_number} has a payload length mismatch: "
+                f"expected {expected_len}, got {actual_len}")
 
         if self.sequence_number == 0 and \
                 self.segments_payload.startswith(b'OpusHead'):
@@ -68,11 +76,11 @@ class OggOpus:
 
     """ Opus Packet """
 
-    def __init__(self, payload):
-        self.payload = payload
+    def __init__(self, payload, leftovers):
+        self.payload = leftovers + payload
         self.last_packet = None
         self.pages = []
-        self.discarded = []
+        self.leftovers = b''
         self.parse()
 
     def parse_page(self):
@@ -83,13 +91,16 @@ class OggOpus:
             if n < 0:
                 # no page found
                 n = len(self.payload)
-                self.discarded.append(self.payload)
                 self.payload = ""
                 return
-            self.discarded.append(self.payload[0:n])
             self.payload = self.payload[n:]
 
-        page = OggOpusPage(self.payload)
+        try:
+            page = OggOpusPage(self.payload)
+        except OggPageException:
+            self.leftovers += self.payload
+            self.payload = b''
+            return
         self.payload = self.payload[page.size():]
         self.pages.append(page)
 
@@ -103,6 +114,6 @@ class OggOpus:
         packets = []
         for page in self.pages:
             packets += page.segments
-        return packets
+        return packets, self.leftovers
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
