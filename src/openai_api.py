@@ -270,8 +270,6 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
                         )
             elif t == "error":
                 logging.info(msg)
-            else:
-                logging.info(t)
 
     def find_tool(self, name):
         """ Finds a tool by name """

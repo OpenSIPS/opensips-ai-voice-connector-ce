@@ -46,10 +46,7 @@ class OggOpusPage:
         actual_len = len(self.segments_payload)
 
         if actual_len < expected_len:
-            raise OggPageException(
-                f"Opus page {
-                    self.sequence_number} has a payload length mismatch: "
-                f"expected {expected_len}, got {actual_len}")
+            raise OggPageException("Missing segments in Opus page")
 
         if self.sequence_number == 0 and \
                 self.segments_payload.startswith(b'OpusHead'):
