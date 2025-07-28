@@ -14,7 +14,10 @@ services:
 
   opensips:
     container_name: ai-voice-connector-opensips
-    image: opensips/opensips:latest
+    build:
+      dockerfile_inline: |
+        FROM opensips/opensips:latest
+        RUN apt -y update && apt -y install gettext-base
     command: -p /etc/opensips/substenv.sh
     volumes:
       - ./b2b:/etc/opensips/

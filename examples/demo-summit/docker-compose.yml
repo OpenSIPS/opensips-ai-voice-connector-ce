@@ -16,7 +16,10 @@ services:
 
   opensips:
     container_name: ai-voice-connector-opensips
-    image: opensips/opensips:latest
+    build:
+      dockerfile_inline: |
+        FROM opensips/opensips:latest
+        RUN apt -y update && apt -y install gettext-base
     volumes:
       - ./os:/etc/opensips/
     network_mode: host
@@ -26,7 +29,10 @@ services:
 
   b2b_opensips:
     container_name: ai-voice-connector-b2b_opensips
-    image: opensips/opensips:latest
+    build:
+      dockerfile_inline: |
+        FROM opensips/opensips:latest
+        RUN apt -y update && apt -y install gettext-base
     volumes:
       - ./b2b:/etc/opensips/
     network_mode: host
