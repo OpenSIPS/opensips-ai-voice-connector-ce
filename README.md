@@ -70,6 +70,7 @@ There are 2 scenarios available:
 * [simple](./examples/simple/) setup with a OpenSIPS instance running as a B2BUA and the AI Voice Connector.
 * [more complex setup](./examples/demo-summit/) used at the OpenSIPS Summit 2025 for a workshop on
 how to build a Voice Agent using OpenSIPS and AI Voice Connector.
+Here is a [short description](./examples/demo-summit/docs/demo-summit.md) of the setup.
 
 In order to run the examples, you need to
 setup [Docker](https://www.docker.com/) on your host and then run:
