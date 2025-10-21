@@ -26,12 +26,14 @@ Module that implements Deepgram communcation
 import logging
 import asyncio
 
+from contextlib import AsyncExitStack
+
 from deepgram import (  # pylint: disable=import-error, import-self
-    LiveOptions,
-    SpeakOptions,
-    DeepgramClient,
-    LiveTranscriptionEvents,
+    AsyncDeepgramClient
 )
+
+from deepgram.core.events import EventType
+from deepgram.extensions.types.sockets import ListenV1SocketClientResponse, ListenV1MediaMessage
 
 from ai import AIEngine
 from chatgpt_api import ChatGPT
@@ -55,8 +57,8 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
 
         if not Deepgram.chatgpt:
             Deepgram.chatgpt = ChatGPT(chatgpt_key, chatgpt_model)
-        self.deepgram = DeepgramClient(self.cfg.get("key",
-                                                    "DEEPGRAM_API_KEY"))
+        self.deepgram = AsyncDeepgramClient(api_key=self.cfg.get("key",
+                                                                 "DEEPGRAM_API_KEY"))
         self.language = self.cfg.get("language", "DEEPGRAM_LANGUAGE", "en-US")
         self.model = self.cfg.get("speech_model", "DEEPGRAM_SPEECH_MODEL",
                                   "nova-3")
@@ -68,53 +70,15 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.b2b_key = call.b2b_key
         self.codec = self.choose_codec(call.sdp)
         self.queue = call.rtp
-        self.stt = self.deepgram.listen.asyncwebsocket.v("1")
-        self.tts = self.deepgram.speak.asyncrest.v("1")
+        self.stt = None
+        self._ready = asyncio.Event()
+        self._exit_stack: AsyncExitStack | None = None
+
         # used to serialize the speech events
         self.speech_lock = asyncio.Lock()
 
         self.buf = []
-        sentences = self.buf
-        call_ref = self
         Deepgram.chatgpt.create_call(self.b2b_key, self.instructions)
-
-        async def on_text(__, result, **_):
-            sentence = result.channel.alternatives[0].transcript
-            if len(sentence) == 0:
-                return
-            if not result.is_final:
-                return
-            sentences.append(sentence)
-            if not sentence.endswith(("?", ".", "!")):
-                return
-            phrase = " ".join(sentences)
-            logging.info("Speaker: %s", phrase)
-            asyncio.create_task(call_ref.handle_phrase(phrase))
-            sentences.clear()
-
-        self.stt.on(LiveTranscriptionEvents.Transcript, on_text)
-        self.transcription_options = LiveOptions(
-            model=self.model,
-            language=self.language,
-            punctuate=True,
-            filler_words=True,
-            interim_results=True,
-            utterance_end_ms="1000",
-            encoding=self.codec.name,
-            sample_rate=self.codec.sample_rate)
-        # don't use sample_rate if we have a bitrate
-        if self.codec.bitrate:
-            self.speak_options = SpeakOptions(
-                model=self.voice,
-                encoding=self.codec.name,
-                bit_rate=self.codec.bitrate,
-                container=self.codec.container)
-        else:
-            self.speak_options = SpeakOptions(
-                model=self.voice,
-                encoding=self.codec.name,
-                sample_rate=self.codec.sample_rate,
-                container=self.codec.container)
 
     def choose_codec(self, sdp):
         """ Returns the preferred codec from a list """
@@ -131,15 +95,36 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
 
     async def send(self, audio):
         """ Sends audio to Deepgram """
-        await self.stt.send(audio)
+        if self.stt is None:
+            try:
+                await asyncio.wait_for(self._ready.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                logging.warning("Deepgram STT not ready, dropping packet")
+                return
+        if self.stt is not None:
+            await self.stt.send_media(ListenV1MediaMessage(audio))
 
     async def process_speech(self, phrase):
         """ Processes the speech received """
-        response = await self.tts.stream_raw({"text": phrase},
-                                             self.speak_options)
+        if self.codec.bitrate:
+            generator = self.deepgram.speak.v1.audio.generate(
+                text=phrase,
+                bit_rate=self.codec.bitrate,
+                encoding=self.codec.name,
+                container=self.codec.container,
+                model=self.voice
+            )
+        else:
+            generator = self.deepgram.speak.v1.audio.generate(
+                text=phrase,
+                encoding=self.codec.name,
+                container=self.codec.container,
+                model=self.voice,
+                sample_rate=self.codec.sample_rate
+            )
         self.drain_queue()
         async with self.speech_lock:
-            await self.codec.process_response(response, self.queue)
+            await self.codec.process_response(generator, self.queue)
 
     def drain_queue(self):
         """ Drains the playback queue """
@@ -148,9 +133,38 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
             self.queue.queue.clear()
 
     async def start(self):
-        """ Starts a Depgram connection """
-        if await self.stt.start(self.transcription_options) is False:
-            return
+        """ Starts a Deepgram connection """
+        self._exit_stack = AsyncExitStack()
+        self.stt = await self._exit_stack.enter_async_context(
+            self.deepgram.listen.v1.connect(
+                model=self.model,
+                language=self.language,
+                punctuate=True,
+                interim_results=True,
+                encoding=self.codec.name,
+                sample_rate=self.codec.sample_rate)
+        )
+        self._ready.set()
+        sentences = self.buf
+        call_ref = self
+
+        def on_message(message: ListenV1SocketClientResponse) -> None:
+            sentence = message.channel.alternatives[0].transcript
+            if len(sentence) == 0:
+                return
+            if not message.is_final:
+                return
+            sentences.append(sentence)
+            if not sentence.endswith(("?", ".", "!")):
+                return
+            phrase = " ".join(sentences)
+            logging.info("Speaker: %s", phrase)
+            asyncio.create_task(call_ref.handle_phrase(phrase))
+            sentences.clear()
+
+        self.stt.on(EventType.MESSAGE, on_message)
+
+        await self.stt.start_listening()
 
         if self.intro:
             asyncio.create_task(self.process_speech(self.intro))
@@ -163,6 +177,10 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
     async def close(self):
         """ closes the Deepgram session """
         Deepgram.chatgpt.delete_call(self.b2b_key)
-        await self.stt.finish()
+        if self._exit_stack:
+            await self._exit_stack.aclose()
+            self._exit_stack = None
+        self.stt = None
+        self._ready.clear()
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

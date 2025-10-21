@@ -66,7 +66,7 @@ class Opus(GenericCodec):
 
     async def process_response(self, response, queue):
         leftovers = b''
-        async for data in response.aiter_bytes():
+        async for data in response:  # response is now an async iterator of bytes
             packets, leftovers = self.parse(data, leftovers)
             for packet in packets:
                 queue.put_nowait(packet)
@@ -91,7 +91,7 @@ class G711(GenericCodec):
 
     async def process_response(self, response, queue):
         leftovers = b''
-        async for data in response.aiter_bytes():
+        async for data in response:  # response is now an async iterator of bytes
             packets, leftovers = self.parse(data, leftovers)
             for packet in packets:
                 queue.put_nowait(packet)
