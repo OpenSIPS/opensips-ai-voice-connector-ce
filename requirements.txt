@@ -1,4 +1,4 @@
-deepgram-sdk
+deepgram-sdk==4.1.*
 aiortc
 openai
 opensips>=0.1.3
