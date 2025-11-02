@@ -95,14 +95,12 @@ def parse_params(params):
         extra_params = json.loads(params["extra_params"])
         if "flavor" in extra_params:
             flavor = extra_params["flavor"]
+            if cfg is None:
+                cfg = extra_params[flavor]
+            else:
+                cfg.update(extra_params[flavor])
     if not flavor:
         flavor = utils.get_ai_flavor(params)
-    if extra_params and flavor in extra_params:
-        if cfg is None:
-            cfg = extra_params[flavor]
-        else:
-            cfg.update(extra_params[flavor])
-
     return flavor, to, cfg
 
 
