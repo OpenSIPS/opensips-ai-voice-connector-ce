@@ -140,7 +140,8 @@ def handle_call(call, key, method, params):
 
         try:
             flavor, to, cfg = parse_params(params)
-            new_call = Call(key, mi_conn, sdp, flavor, to, cfg)
+            new_call = Call(key, mi_conn, sdp, flavor, to, cfg,
+                            utils.get_header(params, "Call-ID"))
             calls[key] = new_call
             mi_reply(key, method, 200, 'OK', new_call.get_body())
         except UnsupportedCodec:

@@ -54,7 +54,8 @@ class Call():  # pylint: disable=too-many-instance-attributes
                  sdp: SessionDescription,
                  flavor: str,
                  to: str,
-                 cfg):
+                 cfg,
+                 call_id):
         host_ip = rtp_cfg.get('bind_ip', 'RTP_BIND_IP', '0.0.0.0')
         try:
             hostname = socket.gethostbyname(socket.gethostname())
@@ -63,6 +64,7 @@ class Call():  # pylint: disable=too-many-instance-attributes
         rtp_ip = rtp_cfg.get('ip', 'RTP_IP', hostname)
 
         self.b2b_key = b2b_key
+        self.call_id = call_id
         self.mi_conn = mi_conn
 
         if sdp.media[0].host:
