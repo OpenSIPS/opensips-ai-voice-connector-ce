@@ -31,3 +31,11 @@ The following parameters can be tuned for this engine:
 | `deepgram_native` | `llm_key` | `DEEPGRAM_LLM_KEY` | no | `authorization` header value sent to the custom LLM endpoint, e.g. `Bearer <key>`; required with `llm_url` | `` |
 | `deepgram_native` | `llm_model` | `DEEPGRAM_LLM_MODEL` | no | The LLM model; required with `llm_url` | `gpt-4o` |
 | `deepgram_native` | `disabled` | `DEEPGRAM_NATIVE_DISABLE`   | no | Disables the flavor | false |
+
+Parameters not set in the `deepgram_native` section are taken from the
+[`deepgram`](deepgram.md) section, so both Deepgram flavors can share settings
+such as `key`, `voice` or `instructions`. This does not apply to `disabled` and
+`match`, which are only read from the `deepgram_native` section. As
+configuration file values take precedence over environment variables, an
+environment variable such as `DEEPGRAM_NATIVE_VOICE` is only used when neither
+section sets that parameter.
