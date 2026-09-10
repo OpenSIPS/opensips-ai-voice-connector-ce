@@ -45,8 +45,6 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
 
     """ Implements Deeepgram communication """
 
-    chatgpt = None
-
     def __init__(self, call, cfg):
         self.priority = ["opus", "pcmu", "pcma"]
         self.cfg = Config.get("deepgram", cfg)
@@ -55,8 +53,7 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
         chatgpt_model = self.cfg.get("chatgpt_model", "CHATGPT_API_MODEL",
                                      "gpt-4o")
 
-        if not Deepgram.chatgpt:
-            Deepgram.chatgpt = ChatGPT(chatgpt_key, chatgpt_model)
+        self.chatgpt = ChatGPT(chatgpt_key, chatgpt_model)
         self.deepgram = AsyncDeepgramClient(api_key=self.cfg.get("key",
                                                                  "DEEPGRAM_API_KEY"))
         self.language = self.cfg.get("language", "DEEPGRAM_LANGUAGE", "en-US")
@@ -78,7 +75,7 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.speech_lock = asyncio.Lock()
 
         self.buf = []
-        Deepgram.chatgpt.create_call(self.b2b_key, self.instructions)
+        self.chatgpt.create_call(self.b2b_key, self.instructions)
 
     def choose_codec(self, sdp):
         """ Returns the preferred codec from a list """
@@ -171,16 +168,17 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
 
     async def handle_phrase(self, phrase):
         """ handles the response of a phrase """
-        response = await Deepgram.chatgpt.handle(self.b2b_key, phrase)
+        response = await self.chatgpt.handle(self.b2b_key, phrase)
         asyncio.create_task(self.process_speech(response))
 
     async def close(self):
         """ closes the Deepgram session """
-        Deepgram.chatgpt.delete_call(self.b2b_key)
+        self.chatgpt.delete_call(self.b2b_key)
         if self._exit_stack:
             await self._exit_stack.aclose()
             self._exit_stack = None
         self.stt = None
         self._ready.clear()
+        await self.chatgpt.close()
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

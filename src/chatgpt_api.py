@@ -61,4 +61,8 @@ class ChatGPT:
         logging.info("Assistant: %s", content)
         return content
 
+    async def close(self):
+        """ Closes the HTTP client """
+        await self.api.close()
+
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

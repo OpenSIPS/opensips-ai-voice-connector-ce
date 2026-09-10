@@ -37,8 +37,6 @@ class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
 
     """ Implements Azure AI communication """
 
-    llm = None
-
     def __init__(self, call, cfg):
         self.queue = call.rtp
         self.call = call
@@ -69,9 +67,7 @@ class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         speech_config.speech_synthesis_language = self.language
         speech_config.speech_synthesis_voice_name = self.voice
 
-        if not AzureAI.llm:
-            AzureAI.llm = ChatGPT(chatgpt_key,
-                                  chatgpt_model)
+        self.llm = ChatGPT(chatgpt_key, chatgpt_model)
 
         if self.codec.name == "mulaw":
             self.audio_format = speechsdk.audio.AudioStreamFormat(
@@ -94,7 +90,7 @@ class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         else:
             raise UnsupportedCodec(self.codec.name)
 
-        AzureAI.llm.create_call(self.b2b_key, self.instructions)
+        self.llm.create_call(self.b2b_key, self.instructions)
 
         self.input_stream = speechsdk.audio.PushAudioInputStream(
             stream_format=self.audio_format
@@ -150,7 +146,7 @@ class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
 
     async def handle_phrase(self, phrase):
         """ Handles the response from a phrase """
-        response = await AzureAI.llm.handle(self.b2b_key, phrase)
+        response = await self.llm.handle(self.b2b_key, phrase)
         asyncio.create_task(self.process_speech(response))
 
     async def start(self):
@@ -175,3 +171,4 @@ class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         """ Closes the Azure AI engine """
         self.speech_recognizer.stop_continuous_recognition()
         self.input_stream.close()
+        await self.llm.close()
