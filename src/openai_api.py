@@ -128,7 +128,7 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
                                  "OPENAI_TURN_DETECT_TYPE",
                                  "server_vad"),
         }
-        # only server_vad accepts these; semantic_vad rejects them
+        # each VAD type only accepts its own settings
         if turn_detection["type"] == "server_vad":
             turn_detection["silence_duration_ms"] = int(self.cfg.get(
                 "turn_detection_silence_ms",
@@ -142,6 +142,11 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
                 "turn_detection_prefix_ms",
                 "OPENAI_TURN_DETECT_PREFIX_MS",
                 200))
+        elif turn_detection["type"] == "semantic_vad":
+            turn_detection["eagerness"] = self.cfg.get(
+                "turn_detection_eagerness",
+                "OPENAI_TURN_DETECT_EAGERNESS",
+                "auto")
         self.session = {
             "type": "realtime",
             "audio": {
