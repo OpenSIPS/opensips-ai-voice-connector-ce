@@ -107,6 +107,13 @@ def parse_params(params):
 def handle_call(call, key, method, params):
     """ Handles a SIP call """
 
+    if not call and method != 'INVITE':
+        try:
+            mi_reply(key, method, 405, 'Method not supported')
+        except OpenSIPSMIException as e:
+            logging.error(f"Failed to send reply {key}, {method}: {e}")
+        return
+
     if method == 'INVITE':
         if 'body' not in params:
             mi_reply(key, method, 415, 'Unsupported Media Type')
@@ -157,13 +164,6 @@ def handle_call(call, key, method, params):
     elif method == 'BYE':
         asyncio.create_task(call.close())
         calls.pop(key, None)
-    
-    if not call:
-        try:
-            mi_reply(key, method, 405, 'Method not supported')
-        except OpenSIPSMIException as e:
-            logging.error(f"Failed to send reply {key}, {method}: {e}")
-        return
 
 
 def udp_handler(data):
