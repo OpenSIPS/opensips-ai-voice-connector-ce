@@ -193,6 +193,7 @@ def get_time(engine, arguments):  # pylint: disable=unused-argument
         time_format = "%Y-%m-%d %H:%M"
     current_time = datetime.now().strftime(time_format)
     logging.info("Current time: %s", current_time)
+    return current_time
 
 
 def get_welcome_message(engine, arguments):  # pylint: disable=unused-argument

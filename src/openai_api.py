@@ -28,6 +28,7 @@ import base64
 import logging
 import asyncio
 import importlib.util
+import inspect
 import sys
 from queue import Empty
 from websockets.asyncio.client import connect
@@ -262,12 +263,27 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
             elif t == "response.function_call_arguments.done":
                 if func := self.find_tool(msg["name"]):
                     try:
-                        func(self, msg["arguments"])
+                        result = func(self, msg["arguments"])
+                        if inspect.isawaitable(result):
+                            result = await result
+                        if result is not None and not isinstance(result, str):
+                            result = json.dumps(result)
                     except Exception as e:  # pylint: disable=broad-except
                         logging.error(
                             "Error executing function %s: %s",
                             msg['name'], e
                         )
+                        result = json.dumps({"error": "function failed"})
+                    if result is not None:
+                        await self.ws.send(json.dumps({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": msg["call_id"],
+                                "output": result
+                            }
+                        }))
+                        await self.ws.send(json.dumps({"type": "response.create"}))
             elif t == "error":
                 logging.info(msg)
 
