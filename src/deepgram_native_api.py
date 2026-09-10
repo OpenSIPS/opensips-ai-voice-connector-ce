@@ -133,26 +133,18 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
                 self.terminate_call()
                 return
 
-            self.session["agent"]["think"]["provider"] = {
-                "type": "custom",
+            # OpenAI-compatible custom endpoint
+            self.session["agent"]["think"]["endpoint"] = {
                 "url": self.llm_url,
-                "headers": [
-                    {
-                        "key": "Authorization",
-                        "value": self.llm_key
-                    }
-                ]
+                "headers": {
+                    "authorization": self.llm_key
+                }
             }
-        else:
-            self.session["agent"]["think"]["provider"] = {
-                "type": "open_ai"
-            }
-            if self.llm_model:
-                self.session["agent"]["think"]["provider"]["model"] = self.llm_model
-            else:
-                self.session["agent"]["think"]["provider"]["model"] = "gpt-4o"
 
-        logging.info("Sending session: %s", self.session)
+        self.session["agent"]["think"]["provider"] = {
+            "type": "open_ai",
+            "model": self.llm_model or "gpt-4o"
+        }
 
         try:
             await self.ws.send(json.dumps(self.session))
@@ -195,7 +187,8 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
                                 self.codec.parse, None, leftovers)
                             self.queue.put_nowait(packet)
                             leftovers = b''
-                    elif t == "EndOfThought":
+                    elif t == "UserStartedSpeaking":
+                        leftovers = b''
                         self.drain_queue()
             except Exception as e:
                 logging.error(

@@ -27,7 +27,7 @@ The following parameters can be tuned for this engine:
 | `deepgram_native` | `voice` | `DEEPGRAM_NATIVE_VOICE`   | no | [Deepgram's voice](https://developers.deepgram.com/docs/tts-models) used for speaking back the response | `aura-asteria-en` |
 | `deepgram_native` | `welcome_message` | `DEEPGRAM_NATIVE_WELCOME_MSG`   | no | A welcome message to be played back to the user when the call starts | `` |
 | `deepgram_native` | `instructions` | `DEEPGRAM_INSTRUCTIONS` | no | Configures the LLM instructions | `` |
-| `deepgram_native` | `llm_url` | `DEEPGRAM_LLM_URL` | no | Configures the LLM URL | `` |
-| `deepgram_native` | `llm_auth` | `DEEPGRAM_LLM_KEY` | no | Configures the LLM API key | `` |
-| `deepgram_native` | `llm_model` | `DEEPGRAM_LLM_MODEL` | no | Configures the LLM model | `` |
+| `deepgram_native` | `llm_url` | `DEEPGRAM_LLM_URL` | no | URL of an OpenAI-compatible [custom LLM endpoint](https://developers.deepgram.com/docs/voice-agent-llm-models) | `` |
+| `deepgram_native` | `llm_key` | `DEEPGRAM_LLM_KEY` | no | `authorization` header value sent to the custom LLM endpoint, e.g. `Bearer <key>`; required with `llm_url` | `` |
+| `deepgram_native` | `llm_model` | `DEEPGRAM_LLM_MODEL` | no | The LLM model; required with `llm_url` | `gpt-4o` |
 | `deepgram_native` | `disable` | `DEEPGRAM_NATIVE_DISABLE`   | no | Disables the flavor | false |

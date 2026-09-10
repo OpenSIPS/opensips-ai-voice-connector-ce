@@ -33,7 +33,7 @@ from deepgram import (  # pylint: disable=import-error, import-self
 )
 
 from deepgram.core.events import EventType
-from deepgram.extensions.types.sockets import ListenV1SocketClientResponse, ListenV1MediaMessage
+from deepgram.listen.v1.types import ListenV1Results
 
 from ai import AIEngine
 from chatgpt_api import ChatGPT
@@ -99,7 +99,7 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
                 logging.warning("Deepgram STT not ready, dropping packet")
                 return
         if self.stt is not None:
-            await self.stt.send_media(ListenV1MediaMessage(audio))
+            await self.stt.send_media(audio)
 
     async def process_speech(self, phrase):
         """ Processes the speech received """
@@ -145,7 +145,10 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
         sentences = self.buf
         call_ref = self
 
-        def on_message(message: ListenV1SocketClientResponse) -> None:
+        def on_message(message) -> None:
+            # only transcripts matter; skip Metadata, SpeechStarted, etc.
+            if not isinstance(message, ListenV1Results):
+                return
             sentence = message.channel.alternatives[0].transcript
             if len(sentence) == 0:
                 return
@@ -161,10 +164,11 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
 
         self.stt.on(EventType.MESSAGE, on_message)
 
-        await self.stt.start_listening()
-
         if self.intro:
             asyncio.create_task(self.process_speech(self.intro))
+
+        # runs until the connection closes
+        await self.stt.start_listening()
 
     async def handle_phrase(self, phrase):
         """ handles the response of a phrase """
