@@ -123,28 +123,31 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
             return
 
         max_tokens = self.cfg.get("max_tokens", "OPENAI_MAX_TOKENS", "inf")
+        turn_detection = {
+            "type": self.cfg.get("turn_detection_type",
+                                 "OPENAI_TURN_DETECT_TYPE",
+                                 "server_vad"),
+        }
+        # only server_vad accepts these; semantic_vad rejects them
+        if turn_detection["type"] == "server_vad":
+            turn_detection["silence_duration_ms"] = int(self.cfg.get(
+                "turn_detection_silence_ms",
+                "OPENAI_TURN_DETECT_SILENCE_MS",
+                200))
+            turn_detection["threshold"] = float(self.cfg.get(
+                "turn_detection_threshold",
+                "OPENAI_TURN_DETECT_THRESHOLD",
+                0.5))
+            turn_detection["prefix_padding_ms"] = int(self.cfg.get(
+                "turn_detection_prefix_ms",
+                "OPENAI_TURN_DETECT_PREFIX_MS",
+                200))
         self.session = {
             "type": "realtime",
             "audio": {
                 "input": {
                     "format": {"type": self.get_audio_format()},
-                    "turn_detection": {
-                        "type": self.cfg.get("turn_detection_type",
-                                             "OPENAI_TURN_DETECT_TYPE",
-                                             "server_vad"),
-                        "silence_duration_ms": int(self.cfg.get(
-                            "turn_detection_silence_ms",
-                            "OPENAI_TURN_DETECT_SILENCE_MS",
-                            200)),
-                        "threshold": float(self.cfg.get(
-                            "turn_detection_threshold",
-                            "OPENAI_TURN_DETECT_THRESHOLD",
-                            0.5)),
-                        "prefix_padding_ms": int(self.cfg.get(
-                            "turn_detection_prefix_ms",
-                            "OPENAI_TURN_DETECT_PREFIX_MS",
-                            200)),
-                    },
+                    "turn_detection": turn_detection,
                     "transcription": {
                         "model": "whisper-1",
                     },
