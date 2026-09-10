@@ -64,4 +64,4 @@ configuration file:
 | `azure` | `voice` | `AZURE_VOICE` | no | Voice used for Azure's Text-to-Speech service | `en-US-AriaNeural` |
 | `azure` | `welcome_message` | `AZURE_WELCOME_MSG` | no | Welcome message played when the user joins the call | |
 | `azure` | `instructions` | `AZURE_INSTRUCTIONS` | no | Some instructions for the assistant (ChatGPT) | |
-| `azure` | `disable` | `AZURE_DISABLE` | no | Disables the flavor | false |
+| `azure` | `disabled` | `AZURE_DISABLE` | no | Disables the flavor | false |

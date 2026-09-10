@@ -27,8 +27,9 @@ The following parameters can be tuned for this engine:
 |----------|--------------|-------------|-----------|-------------|---------|
 | `openai` | `key` or `openai_key` | `OPENAI_API_KEY`   | **yes** | [OpenAI API](https://platform.openai.com/) key | not provided |
 | `openai` | `model`               | `OPENAI_API_MODEL` | no | [OpenAI Realtime Model](https://developers.openai.com/api/docs/models/gpt-realtime-2.1) used | `gpt-realtime-2.1` |
-| `openai` | `disable` | `OPENAI_DISABLE`   | no | Disables the flavor | false |
-| `openai` | `voice`   | `OPENAI_VOICE`     | no | Configures the [OpenAI voice](https://platform.openai.com/docs/guides/text-to-speech#voice-options) | `alloy` |
+| `openai` | `url`                 | `OPENAI_URL`       | no | WebSocket URL of the Realtime API, e.g. to go through a proxy or gateway | `wss://api.openai.com/v1/realtime?model=<model>` |
+| `openai` | `disabled` | `OPENAI_DISABLE`   | no | Disables the flavor | false |
+| `openai` | `voice` or `openai_voice` | `OPENAI_VOICE` | no | Configures the [OpenAI voice](https://platform.openai.com/docs/guides/text-to-speech#voice-options) | `alloy` |
 | `openai` | `instructions`    | `OPENAI_INSTRUCTIONS` | no | Configures the OpenAI module instructions | default/none |
 | `openai` | `welcome_message` | `OPENAI_WELCOME_MSG`  | no | A welcome message to be played back to the user when the call starts | no message |
 | `openai` | `max_tokens`      | `OPENAI_MAX_TOKENS`   | no | Configures [OpenAI Turn Detection](https://developers.openai.com/api/reference/resources/realtime/client-events#session.update) `max_output_tokens`, the maximum number of output tokens for a single assistant response. Possible values are a positive integer or `inf`  | `inf` |
@@ -39,5 +40,5 @@ The following parameters can be tuned for this engine:
 | `openai` | `turn_detection_prefix_ms` | `OPENAI_TURN_DETECT_PREFIX_MS` | no | Configures [OpenAI Turn Detection](https://developers.openai.com/api/reference/resources/realtime/client-events#session.update) `prefix_padding_ms`, only used with `server_vad` | `200` |
 | `openai` | `turn_detection_eagerness` | `OPENAI_TURN_DETECT_EAGERNESS` | no | Configures [OpenAI Turn Detection](https://developers.openai.com/api/reference/resources/realtime/client-events#session.update) `eagerness`, only used with `semantic_vad`: `low` (waits up to 8s), `medium` (4s), `high` (2s) or `auto` (same as `medium`) | `auto` |
 | `openai`  |  `transfer_to`  | `OPENAI_TRANSFER_TO` | no | [SIP uri](https://en.wikipedia.org/wiki/SIP_URI_scheme) for call transfer function | not set |
-| `openai`  |  `transfer_by`  | `OPENAI_TRANSFER_BY` | no | [SIP uri](https://en.wikipedia.org/wiki/SIP_URI_scheme) for call transfer function | not set |
+| `openai`  |  `transfer_by`  | `OPENAI_TRANSFER_BY` | no | [SIP uri](https://en.wikipedia.org/wiki/SIP_URI_scheme) for call transfer function | the call's `To` URI |
 | `openai`  |  `tools`  | `OPENAI_TOOLS` | no | A file or a list of files where tools available to the model are defined. You can override functions, as the model will search for a tool in the list of files and will use the last one that matches the function name. See [functions.py](../../functions.py) for examples. Synchronous tools run in a separate thread pool, so slow tools don't pause the audio of other calls; write a tool as `async def` if it needs to use `engine.ws`, and avoid blocking calls inside it. | not set |
