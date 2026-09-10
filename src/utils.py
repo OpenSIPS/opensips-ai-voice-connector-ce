@@ -24,6 +24,7 @@ Module that provides helper functions for AI
 """
 
 import re
+import zlib
 from sipmessage import Address
 from deepgram_api import Deepgram
 from openai_api import OpenAI
@@ -95,7 +96,7 @@ def get_ai_flavor_default(user):
                                          False)]
     if user in keys:
         return user
-    hash_index = hash(user) % len(keys)
+    hash_index = zlib.crc32(user.encode()) % len(keys)
     return keys[hash_index]
 
 
