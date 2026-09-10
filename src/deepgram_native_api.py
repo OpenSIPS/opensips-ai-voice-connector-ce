@@ -50,7 +50,6 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.default_cfg = Config.get("deepgram", cfg)
         self.cfg = Config.get("deepgram_native", self.default_cfg)
         self.key = self.cfg.get("key", "DEEPGRAM_API_KEY")
-        logging.info(self.key)
         self.stt_model = self.cfg.get(
             "speech_model", "DEEPGRAM_NATIVE_SPEECH_MODEL", "nova-3")
         self.tts_model = self.cfg.get(
