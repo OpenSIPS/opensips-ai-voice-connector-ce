@@ -36,7 +36,7 @@ from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from ai import AIEngine  # pylint: disable=import-error
 from config import Config  # pylint: disable=import-error
 
-OPENAI_API_MODEL = "gpt-4o-realtime-preview-2024-10-01"
+OPENAI_API_MODEL = "gpt-realtime-2.1"
 OPENAI_URL_FORMAT = "wss://api.openai.com/v1/realtime?model={}"
 
 
@@ -76,6 +76,9 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.intro = None
         self.transfer_to = None
         self.transfer_by = None
+        self.item_id = None
+        self.content_index = 0
+        self.item_packets = 0
         self.cfg = Config.get("openai", cfg)
         self.model = self.cfg.get("model", "OPENAI_API_MODEL",
                                   OPENAI_API_MODEL)
@@ -96,9 +99,9 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
 
         # normalize codec
         if self.codec.name == "mulaw":
-            self.codec_name = "g711_ulaw"
+            self.codec_name = "audio/pcmu"
         elif self.codec.name == "alaw":
-            self.codec_name = "g711_alaw"
+            self.codec_name = "audio/pcma"
 
     def get_audio_format(self):
         """ Returns the corresponding audio format """
@@ -107,8 +110,7 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
     async def start(self):
         """ Starts OpenAI connection and logs messages """
         openai_headers = {
-            "Authorization": f"Bearer {self.key}",
-            "OpenAI-Beta": "realtime=v1"
+            "Authorization": f"Bearer {self.key}"
         }
         self.ws = await connect(self.url, additional_headers=openai_headers)
         try:
@@ -120,38 +122,47 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
             logging.error(e)
             return
 
+        max_tokens = self.cfg.get("max_tokens", "OPENAI_MAX_TOKENS", "inf")
         self.session = {
-            "turn_detection": {
-                "type": self.cfg.get("turn_detection_type",
-                                     "OPENAI_TURN_DETECT_TYPE",
-                                     "server_vad"),
-                "silence_duration_ms": int(self.cfg.get(
-                    "turn_detection_silence_ms",
-                    "OPENAI_TURN_DETECT_SILENCE_MS",
-                    200)),
-                "threshold": float(self.cfg.get(
-                    "turn_detection_threshold",
-                    "OPENAI_TURN_DETECT_THRESHOLD",
-                    0.5)),
-                "prefix_padding_ms": int(self.cfg.get(
-                    "turn_detection_prefix_ms",
-                    "OPENAI_TURN_DETECT_PREFIX_MS",
-                    200)),
+            "type": "realtime",
+            "audio": {
+                "input": {
+                    "format": {"type": self.get_audio_format()},
+                    "turn_detection": {
+                        "type": self.cfg.get("turn_detection_type",
+                                             "OPENAI_TURN_DETECT_TYPE",
+                                             "server_vad"),
+                        "silence_duration_ms": int(self.cfg.get(
+                            "turn_detection_silence_ms",
+                            "OPENAI_TURN_DETECT_SILENCE_MS",
+                            200)),
+                        "threshold": float(self.cfg.get(
+                            "turn_detection_threshold",
+                            "OPENAI_TURN_DETECT_THRESHOLD",
+                            0.5)),
+                        "prefix_padding_ms": int(self.cfg.get(
+                            "turn_detection_prefix_ms",
+                            "OPENAI_TURN_DETECT_PREFIX_MS",
+                            200)),
+                    },
+                    "transcription": {
+                        "model": "whisper-1",
+                    },
+                },
+                "output": {
+                    "format": {"type": self.get_audio_format()},
+                    "voice": self.voice,
+                },
             },
-            "input_audio_format": self.get_audio_format(),
-            "output_audio_format": self.get_audio_format(),
-            "input_audio_transcription": {
-                "model": "whisper-1",
-            },
-            "voice": self.voice,
-            "temperature": float(self.cfg.get("temperature",
-                                              "OPENAI_TEMPERATURE", 0.8)),
-            "max_response_output_tokens": self.cfg.get("max_tokens",
-                                                       "OPENAI_MAX_TOKENS",
-                                                       "inf"),
+            "max_output_tokens": max_tokens if max_tokens == "inf" else int(max_tokens),
             "tools": [],
             "tool_choice": "auto",
         }
+
+        reasoning_effort = self.cfg.get("reasoning_effort",
+                                        "OPENAI_REASONING_EFFORT", "low")
+        if reasoning_effort:
+            self.session["reasoning"] = {"effort": reasoning_effort}
 
         self.load_tools()
 
@@ -239,13 +250,18 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         async for smsg in self.ws:
             msg = json.loads(smsg)
             t = msg["type"]
-            if t == "response.audio.delta":
+            if t == "response.output_audio.delta":
+                if msg["item_id"] != self.item_id:
+                    self.item_id = msg["item_id"]
+                    self.content_index = msg["content_index"]
+                    self.item_packets = 0
                 media = base64.b64decode(msg["delta"])
                 packets, leftovers = await self.run_in_thread(
                     self.codec.parse, media, leftovers)
                 for packet in packets:
                     self.queue.put_nowait(packet)
-            elif t == "response.audio.done":
+                self.item_packets += len(packets)
+            elif t == "response.output_audio.done":
                 logging.info(t)
                 if len(leftovers) > 0:
                     packet = await self.run_in_thread(
@@ -253,12 +269,12 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
                     self.queue.put_nowait(packet)
                     leftovers = b''
 
-            elif t == "conversation.item.created":
-                if msg["item"].get('status') == "completed":
-                    self.drain_queue()
+            elif t == "input_audio_buffer.speech_started":
+                leftovers = b''
+                await self.truncate()
             elif t == "conversation.item.input_audio_transcription.completed":
                 logging.info("Speaker: %s", msg["transcript"].rstrip())
-            elif t == "response.audio_transcript.done":
+            elif t == "response.output_audio_transcript.done":
                 logging.info("Engine: %s", msg["transcript"])
             elif t == "response.function_call_arguments.done":
                 if func := self.find_tool(msg["name"]):
@@ -323,6 +339,21 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         except Empty:
             if count > 0:
                 logging.info("dropping %d packets", count)
+        return count
+
+    async def truncate(self):
+        """ Stops playback and drops the unplayed audio from the conversation """
+        dropped = self.drain_queue()
+        if not dropped or not self.item_id:
+            return
+        played = max(self.item_packets - dropped, 0)
+        await self.ws.send(json.dumps({
+            "type": "conversation.item.truncate",
+            "item_id": self.item_id,
+            "content_index": self.content_index,
+            "audio_end_ms": played * self.codec.ptime
+        }))
+        self.item_id = None
 
     async def send(self, audio):
         """ Sends audio to OpenAI """
