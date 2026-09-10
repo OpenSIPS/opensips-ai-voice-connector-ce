@@ -61,6 +61,21 @@ for more detailed settings. Also, if you use both methods, configuration file
 settings will override environment variables.
 See the [Configuration](docs/config.md) page for all the details.
 
+Note that `%` is a special character in the configuration file: it lets a
+value reference another value from the same section, or from `[DEFAULT]`,
+using `%(name)s`. To use a literal `%` in a value, double it (`%%`).
+Environment variables are not affected. For example:
+
+```
+[openai]
+store = OpenSIPS Market
+instructions = You are a helpful assistant for %(store)s. Offer a 10%% discount.
+welcome_message = Hello! This is %(store)s! How can I help you?
+```
+
+Here `instructions` becomes `You are a helpful assistant for OpenSIPS Market.
+Offer a 10% discount.`
+
 
 ## Getting Started
 
