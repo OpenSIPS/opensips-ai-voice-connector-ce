@@ -77,6 +77,95 @@ Here `instructions` becomes `You are a helpful assistant for OpenSIPS Market.
 Offer a 10% discount.`
 
 
+## Tools
+
+The OpenAI flavor lets the model call your own Python functions (tools). List
+one or more files in the `tools` setting (see the [OpenAI flavor](docs/ai/openai.md)
+page). Each file must define:
+
+* a `FUNCTIONS` list with the JSON schema of every tool (`name`, `description`
+  and `parameters`);
+* a function with the same name for each entry, taking `(engine, arguments)`:
+  `engine` is the call's OpenAI session (e.g. `engine.call`, `engine.ws`) and
+  `arguments` is the JSON string produced by the model.
+
+Whatever the function returns is sent back to the model, which then continues
+the conversation: strings are sent as they are, other values are converted to
+JSON. Return `None` when there is no result to send (for example when the tool
+sends its own events). If the function raises an exception, the model is told
+that the tool failed. If a tools file cannot be loaded (check the logs), no
+tools are registered for the call.
+
+A tool can be written in two ways:
+
+* **`def`**: runs in a separate thread pool, so it may block (HTTP requests,
+  databases, sockets) without pausing the audio of other calls. Do not use
+  `asyncio` (e.g. `asyncio.create_task`) or `engine.ws` in it, as there is no
+  event loop in that thread.
+* **`async def`**: runs on the connector's event loop. Use it when the tool
+  needs to send its own [Realtime events](https://developers.openai.com/api/reference/resources/realtime/client-events)
+  with `await engine.ws.send(...)`. It must not block: run blocking calls with
+  `await asyncio.to_thread(...)`.
+
+Tools written for older versions that call `asyncio.create_task(engine.ws.send(...))`
+from a regular `def` have to either return their result or become `async def`.
+In both cases the call waits for the tool before the model can answer, so use
+timeouts for network requests. For example:
+
+```python
+import json
+import asyncio
+import requests
+
+FUNCTIONS = [
+    {
+        "name": "get_order_status",
+        "description": "Returns the status of an order.",
+        "parameters": {
+            "type": "object",
+            "properties": {"order_id": {"type": "string"}},
+            "required": ["order_id"]
+        }
+    },
+    {
+        "name": "greet_caller",
+        "description": "Greets the caller by name, based on their phone number.",
+        "parameters": {
+            "type": "object",
+            "properties": {"phone": {"type": "string"}},
+            "required": ["phone"]
+        }
+    }
+]
+
+
+def get_order_status(engine, arguments):
+    """ Regular function: runs in a thread, blocking calls are fine """
+    order_id = json.loads(arguments)["order_id"]
+    reply = requests.get(f"https://shop.example.com/orders/{order_id}", timeout=5)
+    return reply.json()
+
+
+def lookup_name(phone):
+    """ Blocking helper """
+    reply = requests.get("https://crm.example.com/callers",
+                         params={"phone": phone}, timeout=5)
+    return reply.json()["name"]
+
+
+async def greet_caller(engine, arguments):
+    """ async function: may use engine.ws, blocking calls go to a thread """
+    name = await asyncio.to_thread(lookup_name, json.loads(arguments)["phone"])
+    await engine.ws.send(json.dumps({
+        "type": "response.create",
+        "response": {"instructions": f"Greet {name} by name."}
+    }))
+```
+
+See [functions.py](functions.py) and the
+[demo-summit tools](examples/demo-summit/conn/functions.py) for more examples.
+
+
 ## Getting Started
 
 The simplest way to get the project running is using the Docker Compose files
