@@ -262,23 +262,15 @@ def get_cart(engine, arguments):  # pylint: disable=unused-argument
     ))
     response = ws.recv()
     logging.info("Current cart: %s", response)
-    asyncio.create_task(engine.ws.send(json.dumps(
-        {
-            "type": "response.create",
-            "response": {
-                "instructions":
-                    "Please tell the user the following content of its shopping cart: "
-                    f"{response}"
-                    "Do not call the get_cart function again as it was already called."
-                    "When the title contain 'piece', it means it is sold as 1 piece of the product,"
-                    "so tell the title without the 'piece' word."
-            }
-        }
-    )))
     ws.close()
+    return (
+        f"Current content of the shopping cart: {response}. "
+        "When the title contains 'piece', it means it is sold as 1 piece of the product, "
+        "so tell the title without the 'piece' word."
+    )
 
 
-def transfer_call(engine, arguments):  # pylint: disable=unused-argument
+async def transfer_call(engine, arguments):  # pylint: disable=unused-argument
     """ This function is used to transfer a call. """
     try:
 
@@ -290,7 +282,8 @@ def transfer_call(engine, arguments):  # pylint: disable=unused-argument
         mi = OpenSIPSMI("datagram", datagram_ip='127.0.0.1',
                         datagram_port=os_mi_port)
 
-        response = mi.execute(
+        response = await asyncio.to_thread(
+            mi.execute,
             "media_exchange_from_call_to_uri",
             {
                 "callid": engine.call.call_id,
@@ -302,7 +295,7 @@ def transfer_call(engine, arguments):  # pylint: disable=unused-argument
         )
     except Exception as e:  # pylint: disable=broad-except
         logging.error("Error: %s", e)
-        asyncio.create_task(engine.ws.send(json.dumps(
+        await engine.ws.send(json.dumps(
             {
                 "type": "response.create",
                 "response": {
@@ -311,14 +304,15 @@ def transfer_call(engine, arguments):  # pylint: disable=unused-argument
                         "Please try again later."
                 }
             }
-        )))
+        ))
         return
     logging.info("Response: %s", response)
 
-    asyncio.create_task(engine.ws.send(json.dumps(
+    await engine.ws.send(json.dumps(
         {
             "type": "session.update",
             "session": {
+                "type": "realtime",
                 "instructions":
                     "From now on, you will attend the call between the user and the operator."
                     "Keep quiet, you can still call functions."
@@ -329,7 +323,7 @@ def transfer_call(engine, arguments):  # pylint: disable=unused-argument
                     "Only cart related functions are allowed to be called."
                     "Call the function when you hear the confirmation from the operator,"
                     "not when the user is asking for it.",
-                "modalities": ["text"]
+                "output_modalities": ["text"]
             }
         }
-    )))
+    ))

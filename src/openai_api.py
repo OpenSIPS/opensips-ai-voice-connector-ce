@@ -30,6 +30,7 @@ import asyncio
 import importlib.util
 import inspect
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from queue import Empty
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
@@ -38,6 +39,10 @@ from config import Config  # pylint: disable=import-error
 
 OPENAI_API_MODEL = "gpt-realtime-2.1"
 OPENAI_URL_FORMAT = "wss://api.openai.com/v1/realtime?model={}"
+
+# sync tools run here, so slow tools neither pause the event loop nor
+# starve the default executor used for audio processing
+TOOLS_EXECUTOR = ThreadPoolExecutor(thread_name_prefix="tool")
 
 
 def terminate_call(engine, arguments):  # pylint: disable=unused-argument
@@ -287,7 +292,11 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
             elif t == "response.function_call_arguments.done":
                 if func := self.find_tool(msg["name"]):
                     try:
-                        result = func(self, msg["arguments"])
+                        if inspect.iscoroutinefunction(func):
+                            result = await func(self, msg["arguments"])
+                        else:
+                            result = await asyncio.get_running_loop().run_in_executor(
+                                TOOLS_EXECUTOR, func, self, msg["arguments"])
                         if inspect.isawaitable(result):
                             result = await result
                         if result is not None and not isinstance(result, str):

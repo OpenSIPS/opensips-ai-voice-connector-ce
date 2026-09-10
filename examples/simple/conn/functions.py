@@ -3,7 +3,6 @@
 
 import json
 import logging
-import asyncio
 from datetime import datetime
 
 # This list of functions is used to define the available functions
@@ -72,12 +71,4 @@ def get_welcome_message(engine, arguments):  # pylint: disable=unused-argument
     # args = json.loads(arguments)
     welcome_message = "Welcome to the system!"
     logging.info("Welcome message: %s", welcome_message)
-    asyncio.create_task(engine.ws.send(json.dumps(
-            {
-                "type": "response.create",
-                "response": {
-                    "instructions":
-                        "Welcome message: {}. Tell the user.".format(welcome_message),
-                }
-            }
-        )))
+    return welcome_message
