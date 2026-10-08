@@ -29,7 +29,6 @@ import logging
 import asyncio
 import importlib.util
 import inspect
-import sys
 from concurrent.futures import ThreadPoolExecutor
 from queue import Empty
 from websockets.asyncio.client import connect
@@ -101,6 +100,7 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.tools_files = self.cfg.get("tools", "OPENAI_TOOLS", [])
         if isinstance(self.tools_files, str):
             self.tools_files = self.tools_files.split(",")
+        self.tool_modules = []
 
         # normalize codec
         if self.codec.name == "mulaw":
@@ -234,20 +234,21 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
             }
         }
 
+        # modules stay on the engine: calls may use different tools files
+        modules = []
         for idx, tool_file in enumerate(self.tools_files):
             try:
-                module_name = f"functions_{idx}"
                 spec = importlib.util.spec_from_file_location(
-                    module_name, tool_file)
+                    f"functions_{idx}", tool_file)
                 if not spec:
                     logging.error("Cannot load functions from %s", tool_file)
                     return
                 functions = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = functions
                 spec.loader.exec_module(functions)
                 for fct in functions.FUNCTIONS:
                     fct["type"] = "function"
                     tools[fct["name"]] = fct
+                modules.append(functions)
             except Exception as e:  # pylint: disable=broad-except
                 logging.error(
                     "Error loading functions from %s: %s",
@@ -255,6 +256,7 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
                 )
                 return
 
+        self.tool_modules = modules
         self.session["tools"] = list(tools.values())
 
     async def handle_command(self):  # pylint: disable=too-many-branches
@@ -323,12 +325,10 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
     def find_tool(self, name):
         """ Finds a tool by name """
         func = None
-        for idx in range(len(self.tools_files)):
-            module_name = f"functions_{idx}"
-            mod = sys.modules[module_name]
+        for mod in self.tool_modules:
             if hasattr(mod, name):
                 func = getattr(mod, name, None)
-                logging.info("Found function %s in %s", name, module_name)
+                logging.info("Found function %s in %s", name, mod.__file__)
         if not func:
             if name == "terminate_call":
                 func = terminate_call
