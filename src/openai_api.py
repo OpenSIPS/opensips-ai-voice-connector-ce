@@ -119,8 +119,6 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         openai_headers = {
             "Authorization": f"Bearer {self.key}"
         }
-        # MCP servers connect while the WS is being set up
-        mcp_start = asyncio.create_task(self.mcp.start())
         self.ws = await connect(self.url, additional_headers=openai_headers)
         try:
             json.loads(await self.ws.recv())
@@ -181,7 +179,6 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         if reasoning_effort:
             self.session["reasoning"] = {"effort": reasoning_effort}
 
-        await mcp_start
         self.load_tools()
 
         if self.instructions:
@@ -406,9 +403,6 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
             self.terminate_call()
 
     async def close(self):
-        try:
-            await self.ws.close()
-        finally:
-            await self.mcp.close()
+        await self.ws.close()
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

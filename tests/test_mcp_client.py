@@ -2,7 +2,6 @@
 # pylint: disable=missing-function-docstring
 
 import json
-import asyncio
 import unittest
 from unittest import mock
 
@@ -109,21 +108,18 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(server.env, {"PASSED": "p", "SET": "t-1"})
         self.assertEqual(server.allowed, ["a", "b"])
         self.assertEqual(server.timeout, 2.5)
-        self.assertEqual(server.scope, "shared")
 
     def test_http(self):
         with mock.patch.dict("os.environ", {"TOKEN": "t"}):
             server = make_server(transport="http", url="http://h/mcp",
                                  headers="\nAuthorization: Bearer $TOKEN\n"
-                                 "X-Id: a:b", scope="call")
+                                 "X-Id: a:b")
         self.assertEqual(server.headers,
                          {"Authorization": "Bearer t", "X-Id": "a:b"})
-        self.assertEqual(server.scope, "call")
 
     def test_invalid(self):
         for cfg in ({"command": ""}, {"transport": "http"},
-                    {"transport": "sse"}, {"scope": "global"},
-                    {"headers": "no colon"}):
+                    {"transport": "sse"}, {"headers": "no colon"}):
             with self.assertRaises(ValueError):
                 make_server(**cfg)
 
@@ -143,8 +139,6 @@ class FakeSession():  # pylint: disable=too-few-public-methods
     def __init__(self, tools):
         self.tools = tools
         self.client = True
-        self.ready = asyncio.get_running_loop().create_future()
-        self.ready.set_result(True)
         self.calls = []
 
     async def call(self, tool, arguments):
@@ -176,7 +170,6 @@ class TestMCPTools(unittest.IsolatedAsyncioTestCase):
 
     async def test_definitions(self):
         tools = MCPTools("crm, unknown")
-        await tools.start()
         self.assertEqual([d["name"] for d in tools.definitions],
                          ["crm__lookup", "crm__a_b"])
         self.assertIsNone(tools.find("lookup"))
@@ -185,7 +178,6 @@ class TestMCPTools(unittest.IsolatedAsyncioTestCase):
 
     async def test_follows_reconnect(self):
         tools = MCPTools(["crm"])
-        await tools.start()
         new = FakeSession(self.server.session.tools)
         self.server.session = new
         await tools.find("crm__lookup")(None, "{}")
@@ -194,14 +186,10 @@ class TestMCPTools(unittest.IsolatedAsyncioTestCase):
     async def test_not_connected(self):
         self.server.session.client = None
         tools = MCPTools("crm")
-        await tools.start()
         self.assertEqual(tools.definitions, [])
 
     async def test_none(self):
-        tools = MCPTools(None)
-        await tools.start()
-        self.assertEqual(tools.definitions, [])
-        await tools.close()
+        self.assertEqual(MCPTools(None).definitions, [])
 
 
 if __name__ == "__main__":

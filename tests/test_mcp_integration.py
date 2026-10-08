@@ -35,40 +35,47 @@ def alive(pid):
 
 
 class MCPTestCase(unittest.IsolatedAsyncioTestCase):
-    """ Declares MCP servers for a test, closes all sessions after it """
+    """ Starts MCP servers for a test, stops them after it """
 
-    def use(self, *servers):
-        """ Declares the servers """
+    servers = ()
+
+    async def connect(self, *servers, wait=None):
+        """ Starts the servers, waits for them (or the `wait` ones) to
+            connect """
+        self.servers = servers
         patcher = mock.patch.object(mcp_client, "_servers",
                                     {s.name: s for s in servers})
         patcher.start()
         self.addCleanup(patcher.stop)
+        await mcp_client.start()
+        for server in servers:
+            if wait is None or server.name in wait:
+                await self.wait_connected(server)
 
     async def asyncTearDown(self):
         await mcp_client.stop()
-        self.assertEqual(mcp_client._sessions, set())  # pylint: disable=protected-access
+        for server in self.servers:
+            self.assertTrue(server.session.task.done())
 
     async def call(self, tools, name, arguments=None):
         """ Calls a tool, returns its output """
         return await tools.find(name)(None, json.dumps(arguments or {}))
 
-    async def wait_connected(self, server, timeout=10):
-        """ Waits for a shared server's session """
+    async def wait_connected(self, server, timeout=15):
+        """ Waits for a server's session """
         deadline = time.monotonic() + timeout
         while not (server.session and server.session.client):
             self.assertLess(time.monotonic(), deadline, "not connected")
             await asyncio.sleep(0.05)
 
 
-class TestPerCall(MCPTestCase):
-    """ scope = call: the call owns the session """
+class TestSession(MCPTestCase):
+    """ One session per server, shared by all calls """
 
     async def test_tools(self):
-        self.use(make_server(scope="call", timeout="1",
-                             env="FOO=bar", tools="echo,add,slow,fail,pid,"
-                             "getenv"))
+        await self.connect(make_server(timeout="1", env="FOO=bar",
+                                       tools="echo,add,slow,fail,pid,getenv"))
         tools = MCPTools("test")
-        await tools.start()
         self.assertEqual(sorted(d["name"] for d in tools.definitions),
                          ["test__add", "test__echo", "test__fail",
                           "test__getenv", "test__pid", "test__slow"])
@@ -99,75 +106,65 @@ class TestPerCall(MCPTestCase):
 
         pid = int(await self.call(tools, "test__pid"))
         self.assertTrue(alive(pid))
-        await tools.close()
+        await mcp_client.stop()
         self.assertFalse(alive(pid))
         self.assertIn("error", json.loads(await self.call(tools, "test__pid")))
 
-    async def test_sessions_are_per_call(self):
-        self.use(make_server(scope="call"))
-        first, second = MCPTools("test"), MCPTools("test")
-        await asyncio.gather(first.start(), second.start())
-        pids = {int(await self.call(t, "test__pid")) for t in (first, second)}
-        self.assertEqual(len(pids), 2)
-        await asyncio.gather(first.close(), second.close())
-        self.assertFalse(any(alive(pid) for pid in pids))
-
-    async def test_server_down(self):
-        self.use(make_server("down", scope="call",
-                             command="/nonexistent/server"),
-                 make_server(scope="call", tools="echo"))
-        tools = MCPTools("down,test")
-        await tools.start()
-        self.assertEqual([d["name"] for d in tools.definitions],
-                         ["test__echo"])
-
-    async def test_connect_timeout(self):
-        self.use(make_server(scope="call", connect_timeout="0.5",
-                             command=f"{sys.executable} -c "
-                             "'import time; time.sleep(60)'"))
-        tools = MCPTools("test")
+    async def test_calls_share_session(self):
+        await self.connect(make_server())
+        calls = [MCPTools("test") for _ in range(5)]
+        pids = {int(await self.call(c, "test__pid")) for c in calls}
+        self.assertEqual(len(pids), 1)
+        # requests of different calls run concurrently on the same process
         start = time.monotonic()
-        await tools.start()
-        self.assertLess(time.monotonic() - start, 5)
-        self.assertEqual(tools.definitions, [])
-
-    async def test_close_while_connecting(self):
-        self.use(make_server(scope="call"))
-        tools = MCPTools("test")
-        task = asyncio.create_task(tools.start())
-        await asyncio.sleep(0)
-        await tools.close()
-        await task
-        self.assertEqual(tools.definitions, [])
-
-
-class TestShared(MCPTestCase):
-    """ scope = shared: one session for all calls, reconnected """
+        out = await asyncio.gather(*(self.call(c, "test__slow",
+                                               {"seconds": 1})
+                                     for c in calls))
+        self.assertEqual(out, ["done"] * 5)
+        self.assertLess(time.monotonic() - start, 2)
 
     async def test_reconnect(self):
         server = make_server(tools="pid,crash")
-        self.use(server)
-        await mcp_client.start()
-        await self.wait_connected(server)
-
-        first, second = MCPTools("test"), MCPTools("test")
-        await first.start()
-        await second.start()
-        pid = int(await self.call(first, "test__pid"))
-        self.assertEqual(int(await self.call(second, "test__pid")), pid)
+        await self.connect(server)
+        tools = MCPTools("test")
+        pid = int(await self.call(tools, "test__pid"))
 
         # a crashed server fails the tool call, then comes back
-        self.assertEqual(json.loads(await self.call(first, "test__crash")),
+        self.assertEqual(json.loads(await self.call(tools, "test__crash")),
                          {"error": "the test service is not available"})
         await self.wait_connected(server)
-        new_pid = int(await self.call(first, "test__pid"))
+        new_pid = int(await self.call(tools, "test__pid"))
         self.assertNotEqual(new_pid, pid)
-
-        # a call ending does not close the shared session
-        await first.close()
-        self.assertTrue(alive(new_pid))
         await mcp_client.stop()
         self.assertFalse(alive(new_pid))
+
+    async def test_server_down(self):
+        down = make_server("down", command="/nonexistent/server")
+        await self.connect(down, make_server(tools="echo"), wait=["test"])
+        tools = MCPTools("down,test")
+        self.assertEqual([d["name"] for d in tools.definitions],
+                         ["test__echo"])
+        self.assertFalse(down.session.connected)
+
+    async def test_connect_timeout(self):
+        server = make_server(connect_timeout="0.5",
+                             command=f"{sys.executable} -c "
+                             "'import time; time.sleep(61)'")
+        await self.connect(server, wait=[])
+        await asyncio.sleep(1)
+        self.assertFalse(server.session.connected)
+        self.assertEqual(MCPTools("test").definitions, [])
+        await mcp_client.stop()
+        found = subprocess.run(["pgrep", "-f", r"time\.sleep\(61\)"],
+                               capture_output=True, check=False)
+        self.assertEqual(found.stdout, b"")
+
+    async def test_stop_while_connecting(self):
+        server = make_server()
+        await self.connect(server, wait=[])
+        await asyncio.sleep(0)
+        await mcp_client.stop()
+        self.assertFalse(server.session.connected)
 
 
 def free_port():
@@ -187,19 +184,12 @@ class TestHTTP(MCPTestCase):
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(proc.wait)
         self.addCleanup(proc.terminate)
-        server = make_server(transport="http", scope="call",
-                             url=f"http://127.0.0.1:{port}/mcp",
-                             headers="X-Token: abc")
-        self.use(server)
-        for _ in range(100):
-            tools = MCPTools("test")
-            await tools.start()
-            if tools.definitions:
-                break
-            await asyncio.sleep(0.1)
-        self.assertEqual(await self.call(tools, "test__header",
+        # the session is retried until the server listens
+        await self.connect(make_server(transport="http",
+                                       url=f"http://127.0.0.1:{port}/mcp",
+                                       headers="X-Token: abc"))
+        self.assertEqual(await self.call(MCPTools("test"), "test__header",
                                          {"name": "x-token"}), "abc")
-        await tools.close()
 
 
 if __name__ == "__main__":

@@ -65,7 +65,6 @@ class TestOpenAIDispatch(unittest.IsolatedAsyncioTestCase):
         server.session = session
         with mock.patch.object(mcp_client, "_servers", {"crm": server}):
             mcp = MCPTools("crm")
-            await mcp.start()
         engine = make_engine(mcp, ["functions.py"])
         engine.load_tools()
         names = [t["name"] for t in engine.session["tools"]]
@@ -96,10 +95,8 @@ class TestOpenAI(MCPTestCase):
     """ A real MCP server behind the OpenAI tool dispatch """
 
     async def test_dispatch(self):
-        self.use(make_test_server(scope="call", timeout="1"))
-        mcp = MCPTools("test")
-        await mcp.start()
-        engine = make_engine(mcp)
+        await self.connect(make_test_server(timeout="1"))
+        engine = make_engine(MCPTools("test"))
         engine.load_tools()
         self.assertIn("test__echo",
                       [t["name"] for t in engine.session["tools"]])
@@ -115,8 +112,6 @@ class TestOpenAI(MCPTestCase):
         self.assertIn("error", json.loads(out["c3"]))
         self.assertEqual(sum(e["type"] == "response.create"
                              for e in engine.ws.sent), 3)
-        engine.ws = FakeWS([])
-        await engine.close()
 
 
 if __name__ == "__main__":

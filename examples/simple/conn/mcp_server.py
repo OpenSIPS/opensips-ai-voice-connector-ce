@@ -1,7 +1,7 @@
 """ An example MCP server, started by the connector over stdio.
 
-Its tools are stateless: every input comes as an argument, so the server
-can be shared by all calls (scope = shared).
+Its tools are stateless: every input comes as an argument, so it is safe
+for all calls to share the server.
 """
 
 from mcp.server.mcpserver import MCPServer

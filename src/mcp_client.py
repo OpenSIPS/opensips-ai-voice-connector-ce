@@ -46,8 +46,6 @@ TOOL_NAME_INVALID = re.compile(r"[^a-zA-Z0-9_-]")
 TOOL_NAME_MAX = 64
 
 _servers = None  # pylint: disable=invalid-name
-# every open session, so none is left behind on shutdown
-_sessions = set()
 
 
 def split_list(value, sep=","):
@@ -122,7 +120,6 @@ class MCPServer():  # pylint: disable=too-many-instance-attributes
         self.timeout = float(cfg.get("timeout", fallback=TOOL_TIMEOUT))
         self.connect_timeout = float(cfg.get("connect_timeout",
                                              fallback=CONNECT_TIMEOUT))
-        self.scope = cfg.get("scope", fallback="shared")
         self.session = None
         self.supervisor = None
         self.stopping = False
@@ -133,8 +130,6 @@ class MCPServer():  # pylint: disable=too-many-instance-attributes
             raise ValueError("http transport requires a url")
         if self.transport not in ("stdio", "http"):
             raise ValueError(f"unknown transport {self.transport}")
-        if self.scope not in ("shared", "call"):
-            raise ValueError(f"unknown scope {self.scope}")
 
     @contextlib.asynccontextmanager
     async def connect(self):
@@ -157,11 +152,11 @@ class MCPServer():  # pylint: disable=too-many-instance-attributes
                 yield client
 
     def start(self):
-        """ Keeps a session shared by all calls open, reconnecting it """
+        """ Keeps the session, shared by all calls, open """
         self.supervisor = asyncio.create_task(self.supervise())
 
     async def supervise(self):
-        """ Reopens the shared session whenever it ends """
+        """ Reopens the session whenever it ends """
         delay = 1
         while not self.stopping:
             self.session = MCPSession(self)
@@ -177,13 +172,15 @@ class MCPServer():  # pylint: disable=too-many-instance-attributes
             await asyncio.sleep(delay)
 
     async def stop(self):
-        """ Stops reconnecting the shared session """
+        """ Closes the session and stops reopening it """
         self.stopping = True
         if self.supervisor:
             self.supervisor.cancel()
+        if self.session:
+            await self.session.close()
 
 
-class MCPSession():  # pylint: disable=too-many-instance-attributes
+class MCPSession():
     """ A connection to an MCP server, owned by its own task """
 
     def __init__(self, server):
@@ -194,14 +191,12 @@ class MCPSession():  # pylint: disable=too-many-instance-attributes
         self.tools = []
         self.connected = False
         self.closing = False
-        self.ready = asyncio.get_running_loop().create_future()
         self.scope = anyio.CancelScope()
         self.task = None
 
     def start(self):
         """ Connects in the background """
         self.task = asyncio.create_task(self.run())
-        _sessions.add(self)
 
     async def run(self):
         """ Connects, lists the tools and keeps the session open until it
@@ -222,7 +217,6 @@ class MCPSession():  # pylint: disable=too-many-instance-attributes
                     logging.info("MCP %s: connected, protocol %s, %d tools",
                                  name, client.protocol_version,
                                  len(self.tools))
-                    self.ready.set_result(True)
                     await anyio.sleep_forever()
             if not self.connected and not self.closing:
                 logging.error("MCP %s: connect timed out after %ss", name,
@@ -234,9 +228,6 @@ class MCPSession():  # pylint: disable=too-many-instance-attributes
             logging.error("MCP %s: session failed: %r", name, e)
         finally:
             self.client = None
-            _sessions.discard(self)
-            if not self.ready.done():
-                self.ready.set_result(False)
             if self.connected:
                 logging.info("MCP %s: session closed", name)
 
@@ -304,68 +295,44 @@ class MCPSession():  # pylint: disable=too-many-instance-attributes
             await asyncio.shield(self.task)
 
 
-def _function(get_session, tool):
+def _function(server, tool):
     """ Returns a tool function, dispatched like the ones from tools files """
     async def function(engine, arguments):  # pylint: disable=unused-argument
-        return await get_session().call(tool, arguments)
+        # the server's current session, as it may have reconnected
+        return await server.session.call(tool, arguments)
     return function
 
 
-class MCPTools():
-    """ The MCP tools of a call """
+class MCPTools():  # pylint: disable=too-few-public-methods
+    """ The MCP tools of a call, taken from the servers' sessions """
 
     def __init__(self, names):
-        self.names = split_list(names)
-        self.sessions = []
         self.functions = {}
         self.definitions = []
-        self.closed = False
-
-    async def start(self):
-        """ Collects the tools of the call's servers, opening the
-            per-call sessions """
         servers = get_servers()
-        found = []
-        for name in self.names:
+        for name in split_list(names):
             server = servers.get(name)
             if not server:
                 logging.error("MCP server %s is not configured", name)
-            elif server.scope == "shared":
-                session = server.session
-                if session and session.client:
-                    found.append((server, session,
-                                  lambda s=server: s.session))
-                else:
-                    logging.warning("MCP %s: not connected, its tools are "
-                                    "not available to this call", name)
-            elif not self.closed:
-                session = MCPSession(server)
-                session.start()
-                self.sessions.append(session)
-                found.append((server, session, lambda s=session: s))
-
-        for server, session, get_session in found:
-            # shielded: a shared session's future is awaited by many calls
-            if not await asyncio.shield(session.ready):
                 continue
-            for tool in session.tools:
-                name = tool_name(server.name, tool.name)
-                if len(name) > TOOL_NAME_MAX or name in self.functions:
+            if not (server.session and server.session.client):
+                logging.warning("MCP %s: not connected, its tools are not "
+                                "available to this call", name)
+                continue
+            for tool in server.session.tools:
+                fct_name = tool_name(server.name, tool.name)
+                if len(fct_name) > TOOL_NAME_MAX or \
+                        fct_name in self.functions:
                     logging.warning("MCP %s: skipping tool %s, its name is "
                                     "too long or not unique", server.name,
                                     tool.name)
                     continue
-                self.functions[name] = _function(get_session, tool.name)
-                self.definitions.append(to_openai_tool(name, tool))
+                self.functions[fct_name] = _function(server, tool.name)
+                self.definitions.append(to_openai_tool(fct_name, tool))
 
     def find(self, name):
         """ Returns the function of an MCP tool, or None """
         return self.functions.get(name)
-
-    async def close(self):
-        """ Closes the per-call sessions """
-        self.closed = True
-        await asyncio.gather(*(s.close() for s in self.sessions))
 
 
 def get_servers():
@@ -385,16 +352,13 @@ def get_servers():
 
 
 async def start():
-    """ Opens the sessions of the shared servers """
+    """ Opens the servers' sessions """
     for server in get_servers().values():
-        if server.scope == "shared":
-            server.start()
+        server.start()
 
 
 async def stop():
-    """ Closes all the sessions, shared or per-call """
-    for server in get_servers().values():
-        await server.stop()
-    await asyncio.gather(*(s.close() for s in list(_sessions)))
+    """ Closes the servers' sessions """
+    await asyncio.gather(*(s.stop() for s in get_servers().values()))
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

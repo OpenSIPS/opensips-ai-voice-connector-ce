@@ -30,7 +30,6 @@ transport = http
 url = https://crm.example.com/mcp
 headers =
     Authorization: Bearer ${CRM_TOKEN}
-scope = call
 timeout = 3
 ```
 
@@ -44,7 +43,6 @@ The parameters of an `[mcp:<name>]` section are:
 | `env` | no | Environment variables of the server process (`stdio`), one per line: `NAME=value` sets a variable, `NAME` passes the engine's own variable. The process only inherits a few safe variables (e.g. `PATH`, `HOME`), so API keys have to be listed here | not set |
 | `headers` | no | HTTP headers sent to the server (`http`), one per line, as `Name: value` | not set |
 | `tools` | no | Comma-separated list of the server's tools the model may use; the others are ignored | all tools |
-| `scope` | no | `shared`: one session, opened at startup and used by all calls; `call`: each call opens its own session and closes it when the call ends. See [Sessions](#sessions) | `shared` |
 | `timeout` | no | Seconds the engine waits for a tool call to finish | `5` |
 | `connect_timeout` | no | Seconds the engine waits to connect to the server and list its tools | `10` |
 
@@ -66,15 +64,16 @@ they are, except for the schema's `$schema` keyword.
 
 ## Sessions
 
-With `scope = shared`, the engine connects to the server at startup and all
-calls use the same session. Calls start without any delay, but:
+The engine connects to each server when it starts, and keeps one session per
+server, used by all calls: calls get the server's tools without any delay.
+This means that:
 
 * the server sees a single client: it cannot tell the calls apart, and the
   same `headers`/`env` are used for all of them;
 * if the server keeps state between tool calls, that state may be **shared by
   all calls**. For example, a server with an `identify_caller(phone)` tool
   that remembers the caller, and a `get_my_orders()` tool that uses it, could
-  read one caller's orders to another caller. Only share servers whose tools
+  read one caller's orders to another caller. Only use servers whose tools
   take everything they need as arguments (e.g. `get_orders(phone)`). Whether
   this can happen depends on the server:
   * `stdio` servers: yes, whatever the server keeps in memory is common to
@@ -90,22 +89,12 @@ calls use the same session. Calls start without any delay, but:
   Servers built with the official MCP SDKs handle them concurrently, but a
   server that handles one request at a time makes calls wait for each other
   (up to `timeout`);
+* the tool list is read when the engine connects: tools the server adds or
+  changes later are only seen after a reconnect;
 * if the server stops, all calls lose its tools until the engine reconnects.
   The engine notices when a tool call fails, and reconnects in the background,
   waiting longer after each failed attempt (up to a minute). Calls that start
   while the server is down do not get its tools.
-
-With `scope = call`, every call gets its own session (and, with `stdio`, its
-own server process), opened while the call connects to the AI engine and
-closed when the call ends. Nothing is shared between calls, but:
-
-* connecting delays the start of each call when it takes longer than
-  connecting to the AI engine, up to `connect_timeout`;
-* with `stdio`, each ongoing call runs its own server process: plan memory
-  for it (a minimal Python server takes about 70 MB);
-* with an `http` server using protocol version `2026-07-28` or newer, it
-  brings nothing over `shared`, as there are no sessions to separate;
-* a `call` session that fails is not reopened during the call.
 
 ## Failures
 
