@@ -35,6 +35,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from ai import AIEngine  # pylint: disable=import-error
 from config import Config  # pylint: disable=import-error
+from mcp_client import MCPTools  # pylint: disable=import-error
 
 OPENAI_API_MODEL = "gpt-realtime-2.1"
 OPENAI_URL_FORMAT = "wss://api.openai.com/v1/realtime?model={}"
@@ -101,6 +102,7 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         if isinstance(self.tools_files, str):
             self.tools_files = self.tools_files.split(",")
         self.tool_modules = []
+        self.mcp = MCPTools(self.cfg.get("mcp_servers", "OPENAI_MCP_SERVERS"))
 
         # normalize codec
         if self.codec.name == "mulaw":
@@ -117,6 +119,8 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         openai_headers = {
             "Authorization": f"Bearer {self.key}"
         }
+        # MCP servers connect while the WS is being set up
+        mcp_start = asyncio.create_task(self.mcp.start())
         self.ws = await connect(self.url, additional_headers=openai_headers)
         try:
             json.loads(await self.ws.recv())
@@ -177,6 +181,7 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         if reasoning_effort:
             self.session["reasoning"] = {"effort": reasoning_effort}
 
+        await mcp_start
         self.load_tools()
 
         if self.instructions:
@@ -257,6 +262,9 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
                 return
 
         self.tool_modules = modules
+        for fct in self.mcp.definitions:
+            tools[fct["name"]] = fct
+
         self.session["tools"] = list(tools.values())
 
     async def handle_command(self):  # pylint: disable=too-many-branches
@@ -324,6 +332,8 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
 
     def find_tool(self, name):
         """ Finds a tool by name """
+        if func := self.mcp.find(name):
+            return func
         func = None
         for mod in self.tool_modules:
             if hasattr(mod, name):
@@ -396,6 +406,9 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
             self.terminate_call()
 
     async def close(self):
-        await self.ws.close()
+        try:
+            await self.ws.close()
+        finally:
+            await self.mcp.close()
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
