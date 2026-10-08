@@ -6,3 +6,4 @@ sipmessage==0.7.1
 requests==2.34.2
 azure-cognitiveservices-speech==1.51.2
 websockets==17.1
+mcp==2.3.0
