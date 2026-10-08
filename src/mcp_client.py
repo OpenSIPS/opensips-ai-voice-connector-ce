@@ -219,7 +219,8 @@ class MCPSession():  # pylint: disable=too-many-instance-attributes
                     self.scope.deadline = math.inf
                     self.client = client
                     self.connected = True
-                    logging.info("MCP %s: connected, %d tools", name,
+                    logging.info("MCP %s: connected, protocol %s, %d tools",
+                                 name, client.protocol_version,
                                  len(self.tools))
                     self.ready.set_result(True)
                     await anyio.sleep_forever()

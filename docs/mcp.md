@@ -71,11 +71,25 @@ calls use the same session. Calls start without any delay, but:
 
 * the server sees a single client: it cannot tell the calls apart, and the
   same `headers`/`env` are used for all of them;
-* if the server keeps state in its session, that state is **shared by all
-  calls**. For example, a server with an `identify_caller(phone)` tool that
-  remembers the caller, and a `get_my_orders()` tool that uses it, could read
-  one caller's orders to another caller. Only share servers whose tools take
-  everything they need as arguments (e.g. `get_orders(phone)`);
+* if the server keeps state between tool calls, that state may be **shared by
+  all calls**. For example, a server with an `identify_caller(phone)` tool
+  that remembers the caller, and a `get_my_orders()` tool that uses it, could
+  read one caller's orders to another caller. Only share servers whose tools
+  take everything they need as arguments (e.g. `get_orders(phone)`). Whether
+  this can happen depends on the server:
+  * `stdio` servers: yes, whatever the server keeps in memory is common to
+    all calls, as they all talk to the same process;
+  * `http` servers using MCP protocol version `2025-11-25` or older: yes, if
+    the server keeps state in its MCP session (`Mcp-Session-Id`);
+  * `http` servers using protocol version `2026-07-28` or newer: no, as this
+    protocol has no sessions: each request stands on its own, so a server
+    cannot tie state to a client.
+
+  The protocol version is logged when the engine connects to a server;
+* the tool calls of different calls are sent to the server at the same time.
+  Servers built with the official MCP SDKs handle them concurrently, but a
+  server that handles one request at a time makes calls wait for each other
+  (up to `timeout`);
 * if the server stops, all calls lose its tools until the engine reconnects.
   The engine notices when a tool call fails, and reconnects in the background,
   waiting longer after each failed attempt (up to a minute). Calls that start
@@ -83,9 +97,15 @@ calls use the same session. Calls start without any delay, but:
 
 With `scope = call`, every call gets its own session (and, with `stdio`, its
 own server process), opened while the call connects to the AI engine and
-closed when the call ends. Nothing is shared between calls, but connecting
-delays the start of each call, up to `connect_timeout`. A `call` session
-that fails is not reopened during the call.
+closed when the call ends. Nothing is shared between calls, but:
+
+* connecting delays the start of each call when it takes longer than
+  connecting to the AI engine, up to `connect_timeout`;
+* with `stdio`, each ongoing call runs its own server process: plan memory
+  for it (a minimal Python server takes about 70 MB);
+* with an `http` server using protocol version `2026-07-28` or newer, it
+  brings nothing over `shared`, as there are no sessions to separate;
+* a `call` session that fails is not reopened during the call.
 
 ## Failures
 
