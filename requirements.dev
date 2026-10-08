@@ -4,5 +4,6 @@ openai
 opensips>=0.1.3
 sipmessage
 requests
+mcp
 pre-commit
 pylint

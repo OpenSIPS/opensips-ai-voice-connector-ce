@@ -46,6 +46,9 @@ section with the flavor's name containing parameters specific to the engine.
 Each section/flavor can may also contain a common set of parameters described
 in the [common flavor parameters](#common-flavor-parameters) paragraph.
 
+Each [MCP server](mcp.md) whose tools are given to the AI model is declared in
+its own `[mcp:<name>]` section.
+
 ## Environment
 
 Most of the parameters that can be tuned through the configuration file,
