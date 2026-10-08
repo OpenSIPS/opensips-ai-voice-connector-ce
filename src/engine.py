@@ -36,6 +36,7 @@ from config import Config
 from codec import UnsupportedCodec
 from utils import UnknownSIPUser
 import utils as utils
+import mcp_client
 
 
 mi_cfg = Config.get("opensips")
@@ -196,6 +197,8 @@ def udp_handler(data):
 async def shutdown(s, loop, event):
     """ Called when the program is shutting down """
     logging.info("Received exit signal %s...", s)
+    # before cancelling the tasks, so that MCP servers are stopped cleanly
+    await mcp_client.stop()
     tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
     for task in tasks:
         task.cancel()
@@ -230,6 +233,8 @@ async def async_run():
     _, port = event.socket.sock.getsockname()
 
     logging.info("Starting server at %s:%hu", host_ip, port)
+
+    await mcp_client.start()
 
     loop = asyncio.get_running_loop()
     stop = loop.create_future()
