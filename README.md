@@ -111,7 +111,9 @@ A tool can be written in two ways:
 Tools written for older versions that call `asyncio.create_task(engine.ws.send(...))`
 from a regular `def` have to either return their result or become `async def`.
 In both cases the call waits for the tool before the model can answer, so use
-timeouts for network requests. For example:
+timeouts for network requests. Text the model sends along with a tool call
+(e.g. *let me check that*) is spoken while the tool runs; ask for it in the
+`instructions` to fill the silence of slow tools. For example:
 
 ```python
 import json

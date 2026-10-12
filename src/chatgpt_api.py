@@ -59,9 +59,10 @@ class ChatGPT:
         """ Deletes a ChatGPT context """
         self.contexts.pop(b2b_key)
 
-    async def handle(self, b2b_key, message):
+    async def handle(self, b2b_key, message, speak=None):
         """ Sends a ChatGPT message, runs the tools it calls and returns
-            its reply, or None """
+            its reply, or None; text sent along with tool calls is passed
+            to `speak` before the tools run """
         context = self.contexts[b2b_key]
         # the turn is added to the context once complete, so a phrase
         # handled meanwhile does not split a tool call from its result
@@ -82,17 +83,21 @@ class ChatGPT:
             turn.append(entry)
             if not reply.tool_calls:
                 break
+            if reply.content and speak:
+                logging.info("Assistant: %s", reply.content)
+                speak(reply.content)
             for call in reply.tool_calls:
                 result = await self.tools.run(self.engine, call.function.name,
                                               call.function.arguments)
                 # every tool call needs a result
                 turn.append({"role": "tool", "tool_call_id": call.id,
                              "content": "null" if result is None else result})
-        else:
-            logging.warning("Assistant: no reply after %d tool rounds",
-                            MAX_TOOL_ROUNDS)
 
         context.extend(turn)
+        if reply.tool_calls:
+            logging.warning("Assistant: no reply after %d tool rounds",
+                            MAX_TOOL_ROUNDS)
+            return None
         logging.info("Assistant: %s", reply.content)
         return reply.content
 

@@ -2,6 +2,7 @@
 # pylint: disable=missing-function-docstring
 
 import json
+import asyncio
 import unittest
 from types import SimpleNamespace
 
@@ -11,6 +12,8 @@ from openai.types.chat.chat_completion_message_function_tool_call import \
     Function
 
 from chatgpt_api import ChatGPT
+from azure_api import AzureAI
+from deepgram_api import Deepgram
 from deepgram_native_api import DeepgramNative
 from tools import Tools
 from .test_openai_mcp import FakeWS
@@ -23,7 +26,7 @@ def tool_call(call_id, name, arguments="{}"):
         function=Function(name=name, arguments=arguments))
 
 
-class FakeCompletions():
+class FakeCompletions():  # pylint: disable=too-few-public-methods
     """ Replays ChatGPT replies, records the requests """
 
     def __init__(self, *replies):
@@ -74,16 +77,25 @@ class TestChatGPT(unittest.IsolatedAsyncioTestCase):
             return None
 
         completions = FakeCompletions(
-            ChatCompletionMessage(role="assistant", content=None, tool_calls=[
-                tool_call("t1", "lookup", '{"id": 7}'),
-                tool_call("t2", "notify")]),
+            ChatCompletionMessage(role="assistant", content="Let me check.",
+                                  tool_calls=[
+                                      tool_call("t1", "lookup", '{"id": 7}'),
+                                      tool_call("t2", "notify")]),
             ChatCompletionMessage(role="assistant", content="It shipped."))
         chatgpt = make_chatgpt(completions, make_tools(lookup=lookup,
                                                        notify=notify), engine)
         chatgpt.create_call("call", "be nice")
-        self.assertEqual(await chatgpt.handle("call", "where is it?"),
+        spoken = []
+
+        def speak(text):
+            # spoken before the tools run
+            self.assertEqual(seen, [])
+            spoken.append(text)
+
+        self.assertEqual(await chatgpt.handle("call", "where is it?", speak),
                          "It shipped.")
 
+        self.assertEqual(spoken, ["Let me check."])
         self.assertEqual(seen, [(engine, '{"id": 7}')])
         self.assertEqual(completions.requests[0]["tools"], [
             {"type": "function", "function": {"name": "lookup",
@@ -102,14 +114,48 @@ class TestChatGPT(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(chatgpt.contexts["call"]), 6)
 
     async def test_tool_loop_ends(self):
-        replies = [ChatCompletionMessage(role="assistant", content=None,
+        replies = [ChatCompletionMessage(role="assistant", content=f"try {i}",
                                          tool_calls=[tool_call(f"t{i}", "x")])
                    for i in range(10)]
         completions = FakeCompletions(*replies)
         chatgpt = make_chatgpt(completions, make_tools(x=lambda e, a: "ok"))
         chatgpt.create_call("call")
-        self.assertIsNone(await chatgpt.handle("call", "loop"))
+        spoken = []
+        # the last text was already spoken, so it is not returned again
+        self.assertIsNone(await chatgpt.handle("call", "loop", spoken.append))
+        self.assertEqual(spoken, [f"try {i}" for i in range(5)])
         self.assertEqual(len(completions.requests), 5)
+
+
+class TestSpeech(unittest.IsolatedAsyncioTestCase):
+    """ The text sent along with tool calls is spoken before the reply """
+
+    async def check(self, cls, llm):
+        engine = cls.__new__(cls)
+        engine.b2b_key = "call"
+        spoken = []
+
+        async def process_speech(text, drain=True):
+            spoken.append((text, drain))
+
+        async def handle(b2b_key, phrase, speak):  # pylint: disable=unused-argument
+            speak("Let me check.")
+            await asyncio.sleep(0)
+            return "It shipped."
+
+        engine.process_speech = process_speech
+        setattr(engine, llm, SimpleNamespace(handle=handle))
+        await engine.handle_phrase("where is it?")
+        await asyncio.sleep(0)
+        # only the first one interrupts what is playing
+        self.assertEqual(spoken, [("Let me check.", True),
+                                  ("It shipped.", False)])
+
+    async def test_deepgram(self):
+        await self.check(Deepgram, "chatgpt")
+
+    async def test_azure(self):
+        await self.check(AzureAI, "llm")
 
 
 class TestDeepgramNative(unittest.IsolatedAsyncioTestCase):

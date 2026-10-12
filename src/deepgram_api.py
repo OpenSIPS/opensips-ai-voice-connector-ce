@@ -105,7 +105,7 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
         if self.stt is not None:
             await self.stt.send_media(audio)
 
-    async def process_speech(self, phrase):
+    async def process_speech(self, phrase, drain=True):
         """ Processes the speech received """
         if self.codec.bitrate:
             generator = self.deepgram.speak.v1.audio.generate(
@@ -123,7 +123,8 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
                 model=self.voice,
                 sample_rate=self.codec.sample_rate
             )
-        self.drain_queue()
+        if drain:
+            self.drain_queue()
         async with self.speech_lock:
             await self.codec.process_response(generator, self.queue)
 
@@ -176,9 +177,17 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
 
     async def handle_phrase(self, phrase):
         """ handles the response of a phrase """
-        response = await self.chatgpt.handle(self.b2b_key, phrase)
+        drain = True
+
+        def speak(text):
+            # only the first reply of the turn interrupts the playback
+            nonlocal drain
+            asyncio.create_task(self.process_speech(text, drain))
+            drain = False
+
+        response = await self.chatgpt.handle(self.b2b_key, phrase, speak)
         if response:
-            asyncio.create_task(self.process_speech(response))
+            speak(response)
 
     async def close(self):
         """ closes the Deepgram session """

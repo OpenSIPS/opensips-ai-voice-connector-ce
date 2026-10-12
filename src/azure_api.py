@@ -61,6 +61,8 @@ class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.instructions = self.cfg.get("instructions", "AZURE_INSTRUCTIONS")
 
         self.events = asyncio.Queue()
+        # keeps the replies of a turn in order
+        self.speech_lock = asyncio.Lock()
 
         speech_config = speechsdk.SpeechConfig(
             subscription=self.key, region=self.region)
@@ -115,10 +117,11 @@ class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
 
         self.speech_recognizer.recognized.connect(recognize_callback)
 
-    def speak(self, phrase):
+    def speak(self, phrase, drain=True):
         """ Speaks a phrase """
         result = self.synthesizer.speak_text_async(phrase).get()
-        self.drain_queue()
+        if drain:
+            self.drain_queue()
 
         stream = speechsdk.AudioDataStream(result)
         data = b''
@@ -141,17 +144,26 @@ class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         with self.queue.mutex:
             self.queue.queue.clear()
 
-    async def process_speech(self, phrase):
+    async def process_speech(self, phrase, drain=True):
         """ Processes the speech received from LLM """
-        packets = await asyncio.to_thread(self.speak, phrase)
-        for packet in packets:
-            self.queue.put_nowait(packet)
+        async with self.speech_lock:
+            packets = await asyncio.to_thread(self.speak, phrase, drain)
+            for packet in packets:
+                self.queue.put_nowait(packet)
 
     async def handle_phrase(self, phrase):
         """ Handles the response from a phrase """
-        response = await self.llm.handle(self.b2b_key, phrase)
+        drain = True
+
+        def speak(text):
+            # only the first reply of the turn interrupts the playback
+            nonlocal drain
+            asyncio.create_task(self.process_speech(text, drain))
+            drain = False
+
+        response = await self.llm.handle(self.b2b_key, phrase, speak)
         if response:
-            asyncio.create_task(self.process_speech(response))
+            speak(response)
 
     async def start(self):
         """ Starts the Azure AI engine """
