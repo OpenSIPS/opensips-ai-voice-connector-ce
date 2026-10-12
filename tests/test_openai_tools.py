@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 
+from mcp_client import MCPTools
 from openai_api import OpenAI
 
 
@@ -13,6 +14,7 @@ def make_engine(tools_files):
     engine = OpenAI.__new__(OpenAI)
     engine.tools_files = list(tools_files)
     engine.tool_modules = []
+    engine.mcp = MCPTools(None)
     engine.session = {}
     return engine
 

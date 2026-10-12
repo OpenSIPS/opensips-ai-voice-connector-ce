@@ -166,6 +166,26 @@ See [functions.py](functions.py) and the
 [demo-summit tools](examples/demo-summit/conn/functions.py) for more examples.
 
 
+## MCP Servers
+
+The OpenAI flavor can also use the tools of
+[MCP](https://modelcontextprotocol.io/) servers, either started by the
+connector (stdio) or remote (Streamable HTTP). Declare each server in a
+`[mcp:<name>]` section and list it in the flavor's `mcp_servers`:
+
+```
+[openai]
+mcp_servers = shop
+
+[mcp:shop]
+command = python3 /app/cfg/mcp_server.py
+```
+
+The model sees the server's tools as `shop__<tool>`, next to the tools from
+`tools` files. See the [MCP Servers](docs/mcp.md) page for all the settings,
+how sessions are shared between calls, and how failures are handled.
+
+
 ## Getting Started
 
 The simplest way to get the project running is using the Docker Compose files

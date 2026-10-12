@@ -35,6 +35,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from ai import AIEngine  # pylint: disable=import-error
 from config import Config  # pylint: disable=import-error
+from mcp_client import MCPTools  # pylint: disable=import-error
 
 OPENAI_API_MODEL = "gpt-realtime-2.1"
 OPENAI_URL_FORMAT = "wss://api.openai.com/v1/realtime?model={}"
@@ -101,6 +102,7 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         if isinstance(self.tools_files, str):
             self.tools_files = self.tools_files.split(",")
         self.tool_modules = []
+        self.mcp = MCPTools(self.cfg.get("mcp_servers", "OPENAI_MCP_SERVERS"))
 
         # normalize codec
         if self.codec.name == "mulaw":
@@ -257,6 +259,9 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
                 return
 
         self.tool_modules = modules
+        for fct in self.mcp.definitions:
+            tools[fct["name"]] = fct
+
         self.session["tools"] = list(tools.values())
 
     async def handle_command(self):  # pylint: disable=too-many-branches
@@ -324,6 +329,8 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
 
     def find_tool(self, name):
         """ Finds a tool by name """
+        if func := self.mcp.find(name):
+            return func
         func = None
         for mod in self.tool_modules:
             if hasattr(mod, name):
