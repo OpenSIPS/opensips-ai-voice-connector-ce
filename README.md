@@ -79,22 +79,23 @@ Offer a 10% discount.`
 
 ## Tools
 
-The OpenAI flavor lets the model call your own Python functions (tools). List
-one or more files in the `tools` setting (see the [OpenAI flavor](docs/ai/openai.md)
-page). Each file must define:
+Every flavor lets the model call your own Python functions (tools). List one
+or more files in the flavor's `tools` setting (see the [flavor](docs/ai-flavors.md)
+pages). Each file must define:
 
 * a `FUNCTIONS` list with the JSON schema of every tool (`name`, `description`
   and `parameters`);
 * a function with the same name for each entry, taking `(engine, arguments)`:
-  `engine` is the call's OpenAI session (e.g. `engine.call`, `engine.ws`) and
-  `arguments` is the JSON string produced by the model.
+  `engine` is the call's flavor engine (e.g. `engine.call`, or `engine.ws` in
+  the OpenAI flavor) and `arguments` is the JSON string produced by the model.
 
 Whatever the function returns is sent back to the model, which then continues
 the conversation: strings are sent as they are, other values are converted to
 JSON. Return `None` when there is no result to send (for example when the tool
-sends its own events). If the function raises an exception, the model is told
-that the tool failed. If a tools file cannot be loaded (check the logs), no
-tools are registered for the call.
+sends its own events); the OpenAI flavor then sends nothing, the other flavors
+send `null`, as they must answer every tool call. If the function raises an
+exception, the model is told that the tool failed. If a tools file cannot be
+loaded (check the logs), no tools are registered for the call.
 
 A tool can be written in two ways:
 
@@ -103,7 +104,7 @@ A tool can be written in two ways:
   `asyncio` (e.g. `asyncio.create_task`) or `engine.ws` in it, as there is no
   event loop in that thread.
 * **`async def`**: runs on the connector's event loop. Use it when the tool
-  needs to send its own [Realtime events](https://developers.openai.com/api/reference/resources/realtime/client-events)
+  needs to send its own OpenAI [Realtime events](https://developers.openai.com/api/reference/resources/realtime/client-events)
   with `await engine.ws.send(...)`. It must not block: run blocking calls with
   `await asyncio.to_thread(...)`.
 
@@ -168,7 +169,7 @@ See [functions.py](functions.py) and the
 
 ## MCP Servers
 
-The OpenAI flavor can also use the tools of
+Every flavor can also use the tools of
 [MCP](https://modelcontextprotocol.io/) servers, either started by the
 connector (stdio) or remote (Streamable HTTP). Declare each server in a
 `[mcp:<name>]` section and list it in the flavor's `mcp_servers`:

@@ -31,6 +31,7 @@ from ai import AIEngine
 from chatgpt_api import ChatGPT
 from codec import UnsupportedCodec
 from config import Config
+from tools import Tools
 
 
 class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
@@ -67,7 +68,9 @@ class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         speech_config.speech_synthesis_language = self.language
         speech_config.speech_synthesis_voice_name = self.voice
 
-        self.llm = ChatGPT(chatgpt_key, chatgpt_model)
+        self.tools = Tools(self.cfg.get("tools", "AZURE_TOOLS", []),
+                           self.cfg.get("mcp_servers", "AZURE_MCP_SERVERS"))
+        self.llm = ChatGPT(chatgpt_key, chatgpt_model, self.tools, self)
 
         if self.codec.name == "mulaw":
             self.audio_format = speechsdk.audio.AudioStreamFormat(
@@ -147,7 +150,8 @@ class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
     async def handle_phrase(self, phrase):
         """ Handles the response from a phrase """
         response = await self.llm.handle(self.b2b_key, phrase)
-        asyncio.create_task(self.process_speech(response))
+        if response:
+            asyncio.create_task(self.process_speech(response))
 
     async def start(self):
         """ Starts the Azure AI engine """

@@ -5,16 +5,14 @@ import os
 import tempfile
 import unittest
 
-from mcp_client import MCPTools
-from openai_api import OpenAI
+from openai_api import OpenAI, BUILTINS
+from tools import Tools
 
 
 def make_engine(tools_files):
     """ Returns an OpenAI engine without a call """
     engine = OpenAI.__new__(OpenAI)
-    engine.tools_files = list(tools_files)
-    engine.tool_modules = []
-    engine.mcp = MCPTools(None)
+    engine.tools = Tools(list(tools_files), None, BUILTINS)
     engine.session = {}
     return engine
 
@@ -45,18 +43,18 @@ class TestOpenAITools(unittest.TestCase):
         bot_b = make_engine([self.tools_file("b.py", "b", "lookup", "only_b")])
         bot_a.load_tools()
         bot_b.load_tools()  # another call loads its own tools meanwhile
-        self.assertEqual(bot_a.find_tool("lookup")(bot_a, "{}"), "a")
-        self.assertEqual(bot_b.find_tool("lookup")(bot_b, "{}"), "b")
-        self.assertEqual(bot_a.find_tool("only_a")(bot_a, "{}"), "a")
-        self.assertEqual(bot_b.find_tool("only_b")(bot_b, "{}"), "b")
-        self.assertIsNone(bot_a.find_tool("only_b"))
-        self.assertIsNone(bot_b.find_tool("only_a"))
+        self.assertEqual(bot_a.tools.find("lookup")(bot_a, "{}"), "a")
+        self.assertEqual(bot_b.tools.find("lookup")(bot_b, "{}"), "b")
+        self.assertEqual(bot_a.tools.find("only_a")(bot_a, "{}"), "a")
+        self.assertEqual(bot_b.tools.find("only_b")(bot_b, "{}"), "b")
+        self.assertIsNone(bot_a.tools.find("only_b"))
+        self.assertIsNone(bot_b.tools.find("only_a"))
 
     def test_later_files_override(self):
         engine = make_engine([self.tools_file("first.py", "first", "lookup"),
                               self.tools_file("second.py", "second", "lookup")])
         engine.load_tools()
-        self.assertEqual(engine.find_tool("lookup")(engine, "{}"), "second")
+        self.assertEqual(engine.tools.find("lookup")(engine, "{}"), "second")
         names = [t["name"] for t in engine.session["tools"]]
         self.assertEqual(names, ["terminate_call", "transfer_call", "lookup"])
 
@@ -65,8 +63,8 @@ class TestOpenAITools(unittest.TestCase):
                               os.path.join(self.dir, "missing.py")])
         engine.load_tools()
         self.assertEqual(engine.session, {})
-        self.assertIsNone(engine.find_tool("lookup"))
-        self.assertIsNotNone(engine.find_tool("terminate_call"))
+        self.assertIsNone(engine.tools.find("lookup"))
+        self.assertIsNotNone(engine.tools.find("terminate_call"))
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from ai import AIEngine
 from config import Config
+from tools import Tools, function_schema
 
 DEEPGRAM_VOICE_AGENT_URL = "wss://agent.deepgram.com/v1/agent/converse"
 
@@ -62,6 +63,9 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.llm_url = self.cfg.get("llm_url", "DEEPGRAM_LLM_URL")
         self.llm_key = self.cfg.get("llm_key", "DEEPGRAM_LLM_KEY")
         self.llm_model = self.cfg.get("llm_model", "DEEPGRAM_LLM_MODEL")
+        self.tools = Tools(
+            self.cfg.get("tools", "DEEPGRAM_NATIVE_TOOLS", []),
+            self.cfg.get("mcp_servers", "DEEPGRAM_NATIVE_MCP_SERVERS"))
 
         # normalize codec
         if self.codec.name == "mulaw":
@@ -146,6 +150,11 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
             "model": self.llm_model or "gpt-4o"
         }
 
+        # functions without an endpoint are called client side, by us
+        if tools := self.tools.load():
+            self.session["agent"]["think"]["functions"] = [
+                function_schema(t) for t in tools]
+
         try:
             await self.ws.send(json.dumps(self.session))
             if self.intro:
@@ -190,12 +199,28 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
                     elif t == "UserStartedSpeaking":
                         leftovers = b''
                         self.drain_queue()
+                    elif t == "FunctionCallRequest":
+                        await self.call_functions(msg["functions"])
             except Exception as e:
                 logging.error(
                     "Unexpected error while processing message: %s: %s",
                     type(e), e
                 )
                 raise
+
+    async def call_functions(self, functions):
+        """ Runs the functions the agent calls and sends their results """
+        for fct in functions:
+            if not fct.get("client_side"):
+                continue
+            result = await self.tools.run(self, fct["name"], fct["arguments"])
+            # the agent waits for a response to every call
+            await self.ws.send(json.dumps({
+                "type": "FunctionCallResponse",
+                "id": fct["id"],
+                "name": fct["name"],
+                "content": "null" if result is None else result
+            }))
 
     def drain_queue(self):
         """ Drains the playback queue """

@@ -27,22 +27,15 @@ import json
 import base64
 import logging
 import asyncio
-import importlib.util
-import inspect
-from concurrent.futures import ThreadPoolExecutor
 from queue import Empty
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from ai import AIEngine  # pylint: disable=import-error
 from config import Config  # pylint: disable=import-error
-from mcp_client import MCPTools  # pylint: disable=import-error
+from tools import Tools  # pylint: disable=import-error
 
 OPENAI_API_MODEL = "gpt-realtime-2.1"
 OPENAI_URL_FORMAT = "wss://api.openai.com/v1/realtime?model={}"
-
-# sync tools run here, so slow tools neither pause the event loop nor
-# starve the default executor used for audio processing
-TOOLS_EXECUTOR = ThreadPoolExecutor(thread_name_prefix="tool")
 
 
 def terminate_call(engine, arguments):  # pylint: disable=unused-argument
@@ -65,6 +58,36 @@ def transfer_call(engine, arguments):  # pylint: disable=unused-argument
         )
     }
     engine.call.mi_conn.execute('ua_session_update', params)
+
+
+BUILTINS = {
+    "terminate_call": ({
+        "type": "function",
+        "name": "terminate_call",
+        "description":
+            "Call me when any of the session's parties want "
+            "to terminate the call."
+            "Always say goodbye before hanging up."
+            "Send the audio first, then call this function.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        },
+    }, terminate_call),
+    "transfer_call": ({
+        "type": "function",
+        "name": "transfer_call",
+        "description":
+            "call the function if a request was received"
+            "to transfer a call with an operator, a person",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    }, transfer_call)
+}
 
 
 class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
@@ -98,11 +121,9 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.transfer_by = self.cfg.get(
             "transfer_by", "OPENAI_TRANSFER_BY", self.call.to)
 
-        self.tools_files = self.cfg.get("tools", "OPENAI_TOOLS", [])
-        if isinstance(self.tools_files, str):
-            self.tools_files = self.tools_files.split(",")
-        self.tool_modules = []
-        self.mcp = MCPTools(self.cfg.get("mcp_servers", "OPENAI_MCP_SERVERS"))
+        self.tools = Tools(self.cfg.get("tools", "OPENAI_TOOLS", []),
+                           self.cfg.get("mcp_servers", "OPENAI_MCP_SERVERS"),
+                           BUILTINS)
 
         # normalize codec
         if self.codec.name == "mulaw":
@@ -207,62 +228,9 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
     def load_tools(self):
         """ Loads the tools from the files """
 
-        tools = {
-            "terminate_call": {
-                "type": "function",
-                "name": "terminate_call",
-                "description":
-                    "Call me when any of the session's parties want "
-                    "to terminate the call."
-                    "Always say goodbye before hanging up."
-                    "Send the audio first, then call this function.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": []
-                },
-            },
-            "transfer_call": {
-                "type": "function",
-                "name": "transfer_call",
-                "description":
-                    "call the function if a request was received"
-                    "to transfer a call with an operator, a person",
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": []
-                }
-            }
-        }
-
-        # modules stay on the engine: calls may use different tools files
-        modules = []
-        for idx, tool_file in enumerate(self.tools_files):
-            try:
-                spec = importlib.util.spec_from_file_location(
-                    f"functions_{idx}", tool_file)
-                if not spec:
-                    logging.error("Cannot load functions from %s", tool_file)
-                    return
-                functions = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(functions)
-                for fct in functions.FUNCTIONS:
-                    fct["type"] = "function"
-                    tools[fct["name"]] = fct
-                modules.append(functions)
-            except Exception as e:  # pylint: disable=broad-except
-                logging.error(
-                    "Error loading functions from %s: %s",
-                    tool_file, e
-                )
-                return
-
-        self.tool_modules = modules
-        for fct in self.mcp.definitions:
-            tools[fct["name"]] = fct
-
-        self.session["tools"] = list(tools.values())
+        tools = self.tools.load()
+        if tools is not None:
+            self.session["tools"] = tools
 
     async def handle_command(self):  # pylint: disable=too-many-branches
         """ Handles a command from the server """
@@ -297,54 +265,20 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
             elif t == "response.output_audio_transcript.done":
                 logging.info("Engine: %s", msg["transcript"])
             elif t == "response.function_call_arguments.done":
-                if func := self.find_tool(msg["name"]):
-                    try:
-                        if inspect.iscoroutinefunction(func):
-                            result = await func(self, msg["arguments"])
-                        else:
-                            result = await asyncio.get_running_loop().run_in_executor(
-                                TOOLS_EXECUTOR, func, self, msg["arguments"])
-                        if inspect.isawaitable(result):
-                            result = await result
-                        if result is not None and not isinstance(result, str):
-                            result = json.dumps(result)
-                    except Exception as e:  # pylint: disable=broad-except
-                        logging.error(
-                            "Error executing function %s: %s",
-                            msg['name'], e
-                        )
-                        result = json.dumps({"error": "function failed"})
-                    if result is not None:
-                        await self.ws.send(json.dumps({
-                            "type": "conversation.item.create",
-                            "item": {
-                                "type": "function_call_output",
-                                "call_id": msg["call_id"],
-                                "output": result
-                            }
-                        }))
-                        await self.ws.send(json.dumps({"type": "response.create"}))
+                result = await self.tools.run(self, msg["name"],
+                                              msg["arguments"])
+                if result is not None:
+                    await self.ws.send(json.dumps({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": msg["call_id"],
+                            "output": result
+                        }
+                    }))
+                    await self.ws.send(json.dumps({"type": "response.create"}))
             elif t == "error":
                 logging.info(msg)
-
-    def find_tool(self, name):
-        """ Finds a tool by name """
-        if func := self.mcp.find(name):
-            return func
-        func = None
-        for mod in self.tool_modules:
-            if hasattr(mod, name):
-                func = getattr(mod, name, None)
-                logging.info("Found function %s in %s", name, mod.__file__)
-        if not func:
-            if name == "terminate_call":
-                func = terminate_call
-            elif name == "transfer_call":
-                func = transfer_call
-            else:
-                logging.error("Function %s not found", name)
-                return None
-        return func
 
     def terminate_call(self):
         """ Terminates the call """

@@ -64,4 +64,6 @@ configuration file:
 | `azure` | `voice` | `AZURE_VOICE` | no | Voice used for Azure's Text-to-Speech service | `en-US-AriaNeural` |
 | `azure` | `welcome_message` | `AZURE_WELCOME_MSG` | no | Welcome message played when the user joins the call | |
 | `azure` | `instructions` | `AZURE_INSTRUCTIONS` | no | Some instructions for the assistant (ChatGPT) | |
+| `azure` | `tools` | `AZURE_TOOLS` | no | A file or a comma-separated list of files where the [tools](../../README.md#tools) available to the model are defined | not set |
+| `azure` | `mcp_servers` | `AZURE_MCP_SERVERS` | no | Comma-separated list of the [MCP servers](../mcp.md) whose tools the model can use | not set |
 | `azure` | `disabled` | `AZURE_DISABLE` | no | Disables the flavor | false |

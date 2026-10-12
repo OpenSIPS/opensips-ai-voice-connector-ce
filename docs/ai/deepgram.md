@@ -68,4 +68,6 @@ The following parameters can be tuned for this engine:
 | `deepgram` | `voice` | `DEEPGRAM_VOICE`   | no | [Deepgram's voice](https://developers.deepgram.com/docs/tts-models) used for speaking back the response | `aura-asteria-en` |
 | `deepgram` | `welcome_message` | `DEEPGRAM_WELCOME_MSG`   | no | A welcome message to be played back to the user when the call starts | `` |
 | `deepgram` | `instructions` | `DEEPGRAM_INSTRUCTIONS` | no | Instructions for the assistant (ChatGPT) | `` |
+| `deepgram` | `tools` | `DEEPGRAM_TOOLS` | no | A file or a comma-separated list of files where the [tools](../../README.md#tools) available to the model are defined | not set |
+| `deepgram` | `mcp_servers` | `DEEPGRAM_MCP_SERVERS` | no | Comma-separated list of the [MCP servers](../mcp.md) whose tools the model can use | not set |
 | `deepgram` | `disabled` | `DEEPGRAM_DISABLE`   | no | Disables the flavor | false |

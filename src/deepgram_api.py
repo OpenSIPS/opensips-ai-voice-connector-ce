@@ -39,6 +39,7 @@ from ai import AIEngine
 from chatgpt_api import ChatGPT
 from config import Config
 from codec import get_codecs, CODECS
+from tools import Tools
 
 
 class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
@@ -53,7 +54,10 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
         chatgpt_model = self.cfg.get("chatgpt_model", "CHATGPT_API_MODEL",
                                      "gpt-4o")
 
-        self.chatgpt = ChatGPT(chatgpt_key, chatgpt_model)
+        self.call = call
+        self.tools = Tools(self.cfg.get("tools", "DEEPGRAM_TOOLS", []),
+                           self.cfg.get("mcp_servers", "DEEPGRAM_MCP_SERVERS"))
+        self.chatgpt = ChatGPT(chatgpt_key, chatgpt_model, self.tools, self)
         self.deepgram = AsyncDeepgramClient(api_key=self.cfg.get("key",
                                                                  "DEEPGRAM_API_KEY"))
         self.language = self.cfg.get("language", "DEEPGRAM_LANGUAGE", "en-US")
@@ -173,7 +177,8 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
     async def handle_phrase(self, phrase):
         """ handles the response of a phrase """
         response = await self.chatgpt.handle(self.b2b_key, phrase)
-        asyncio.create_task(self.process_speech(response))
+        if response:
+            asyncio.create_task(self.process_speech(response))
 
     async def close(self):
         """ closes the Deepgram session """

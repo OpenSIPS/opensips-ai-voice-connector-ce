@@ -30,6 +30,8 @@ The following parameters can be tuned for this engine:
 | `deepgram_native` | `llm_url` | `DEEPGRAM_LLM_URL` | no | URL of an OpenAI-compatible [custom LLM endpoint](https://developers.deepgram.com/docs/voice-agent-llm-models) | `` |
 | `deepgram_native` | `llm_key` | `DEEPGRAM_LLM_KEY` | no | `authorization` header value sent to the custom LLM endpoint, e.g. `Bearer <key>`; required with `llm_url` | `` |
 | `deepgram_native` | `llm_model` | `DEEPGRAM_LLM_MODEL` | no | The LLM model; required with `llm_url` | `gpt-4o` |
+| `deepgram_native` | `tools` | `DEEPGRAM_NATIVE_TOOLS` | no | A file or a comma-separated list of files where the [tools](../../README.md#tools) available to the model are defined | not set |
+| `deepgram_native` | `mcp_servers` | `DEEPGRAM_NATIVE_MCP_SERVERS` | no | Comma-separated list of the [MCP servers](../mcp.md) whose tools the model can use | not set |
 | `deepgram_native` | `disabled` | `DEEPGRAM_NATIVE_DISABLE`   | no | Disables the flavor | false |
 
 Parameters not set in the `deepgram_native` section are taken from the

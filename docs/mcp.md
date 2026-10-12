@@ -6,7 +6,7 @@ During a call, the model sees these tools next to the ones defined in
 [tools files](../README.md#tools) and can call them the same way: the engine
 sends the call to the MCP server and passes the result back to the model.
 
-MCP tools are currently available in the [OpenAI](ai/openai.md) flavor.
+MCP tools are available in every [flavor](ai-flavors.md).
 
 ## Configuration
 
@@ -49,9 +49,9 @@ The parameters of an `[mcp:<name>]` section are:
 Values of `env` and `headers` may reference environment variables of the
 engine as `${NAME}` or `$NAME`, to keep secrets out of the configuration file.
 MCP servers can only be declared in the configuration file, not through
-environment variables. Use the [OpenAI flavor](ai/openai.md) `mcp_servers`
-parameter (or `OPENAI_MCP_SERVERS`) to choose the servers of a flavor; a bot
-configuration fetched through `api_url` can also set it.
+environment variables. Use a flavor's `mcp_servers` parameter (or its
+environment variable, e.g. `OPENAI_MCP_SERVERS`) to choose the servers of a
+flavor; a bot configuration fetched through `api_url` can also set it.
 
 ## Tool Names
 

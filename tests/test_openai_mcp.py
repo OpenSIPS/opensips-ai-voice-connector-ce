@@ -9,7 +9,8 @@ from mcp_types import Tool
 
 import mcp_client
 from mcp_client import MCPTools
-from openai_api import OpenAI
+from openai_api import OpenAI, BUILTINS
+from tools import Tools
 from .test_mcp_client import FakeSession, make_server, schema
 from .test_mcp_integration import MCPTestCase
 from .test_mcp_integration import make_server as make_test_server
@@ -37,9 +38,8 @@ class FakeWS():
 def make_engine(mcp, tools_files=()):
     """ Returns an OpenAI engine without a call """
     engine = OpenAI.__new__(OpenAI)
-    engine.tools_files = list(tools_files)
-    engine.tool_modules = []
-    engine.mcp = mcp
+    engine.tools = Tools(list(tools_files), None, BUILTINS)
+    engine.tools.mcp = mcp
     engine.session = {}
     return engine
 
