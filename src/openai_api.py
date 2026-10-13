@@ -32,62 +32,10 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from ai import AIEngine  # pylint: disable=import-error
 from config import Config  # pylint: disable=import-error
-from tools import Tools  # pylint: disable=import-error
+from tools import Tools, BUILTINS  # pylint: disable=import-error
 
 OPENAI_API_MODEL = "gpt-realtime-2.1"
 OPENAI_URL_FORMAT = "wss://api.openai.com/v1/realtime?model={}"
-
-
-def terminate_call(engine, arguments):  # pylint: disable=unused-argument
-    """ Terminates the call """
-    # args = json.loads(arguments)
-    logging.info("Terminating call...")
-    engine.call.terminated = True
-
-
-def transfer_call(engine, arguments):  # pylint: disable=unused-argument
-    """ Transfers the call """
-    # args = json.loads(arguments)
-    params = {
-        'key': engine.call.b2b_key,
-        'method': "REFER",
-        'body': "",
-        'extra_headers': (
-            f"Refer-To: <{engine.transfer_to}>\r\n"
-            f"Referred-By: {engine.transfer_by}\r\n"
-        )
-    }
-    engine.call.mi_conn.execute('ua_session_update', params)
-
-
-BUILTINS = {
-    "terminate_call": ({
-        "type": "function",
-        "name": "terminate_call",
-        "description":
-            "Call me when any of the session's parties want "
-            "to terminate the call."
-            "Always say goodbye before hanging up."
-            "Send the audio first, then call this function.",
-        "parameters": {
-            "type": "object",
-            "properties": {},
-            "required": []
-        },
-    }, terminate_call),
-    "transfer_call": ({
-        "type": "function",
-        "name": "transfer_call",
-        "description":
-            "call the function if a request was received"
-            "to transfer a call with an operator, a person",
-        "parameters": {
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
-    }, transfer_call)
-}
 
 
 class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes

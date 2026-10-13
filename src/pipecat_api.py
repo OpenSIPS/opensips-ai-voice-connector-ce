@@ -24,6 +24,7 @@ Pipecat pipeline over a G.711 call
 """
 
 import re
+import json
 import time
 import asyncio
 import audioop  # pylint: disable=deprecated-module
@@ -31,10 +32,15 @@ import logging
 import importlib
 import dataclasses
 
+from pipecat.adapters.schemas.function_schema import FunctionSchema  # pylint: disable=import-error
+from pipecat.adapters.schemas.tools_schema import ToolsSchema  # pylint: disable=import-error
 from pipecat.audio.vad.silero import SileroVADAnalyzer  # pylint: disable=import-error
 from pipecat.frames.frames import (  # pylint: disable=import-error
+    EndFrame,
     InputAudioRawFrame,
     InterruptionFrame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
     TTSSpeakFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline  # pylint: disable=import-error
@@ -48,6 +54,7 @@ from pipecat.processors.aggregators.llm_response_universal import (  # pylint: d
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
+from pipecat.processors.frame_processor import FrameProcessor  # pylint: disable=import-error
 from pipecat.transports.base_input import BaseInputTransport  # pylint: disable=import-error
 from pipecat.transports.base_output import BaseOutputTransport  # pylint: disable=import-error
 from pipecat.transports.base_transport import BaseTransport, TransportParams  # pylint: disable=import-error
@@ -55,10 +62,14 @@ from pipecat.workers.runner import WorkerRunner  # pylint: disable=import-error
 
 from ai import AIEngine
 from config import Config
+from tools import Tools, BUILTINS
 
 # audio packets queued ahead of playback: enough to absorb scheduling
 # jitter, few enough for an interruption to be heard at once
 PLAYBACK_LEAD = 4
+
+# seconds the model has to say goodbye once it hung up
+HANGUP_TIMEOUT = 10
 
 # the Pipecat service of each [<kind>:<name>] section's type:
 # (module, class, constructor argument of the `url` option, fixed arguments)
@@ -254,6 +265,58 @@ def make_service(kind, name, **settings):  # pylint: disable=too-many-locals
     return cls(settings=cls.Settings(**values), **kwargs)
 
 
+def tools_schema(definitions):
+    """ Returns the Pipecat schema of the tools' definitions """
+    return ToolsSchema(standard_tools=[FunctionSchema(
+        name=d["name"],
+        description=d.get("description", ""),
+        properties=d.get("parameters", {}).get("properties", {}),
+        required=d.get("parameters", {}).get("required", []))
+        for d in definitions])
+
+
+class HangUp(FrameProcessor):
+    """ Ends the pipeline once the model's reply to its hang up was played;
+        sits after the output transport, which passes frames on only once
+        the audio before them is queued """
+
+    def __init__(self, end):
+        super().__init__()
+        self.end = end
+        # None, then "asked" once the model hung up, then "replying"
+        self.state = None
+
+    def ask(self):
+        """ The model hung up: end after its next reply """
+        self.state = "asked"
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        # the reply that called the tool may end after it: wait for the next
+        if isinstance(frame, LLMFullResponseStartFrame) and \
+                self.state == "asked":
+            self.state = "replying"
+        elif isinstance(frame, LLMFullResponseEndFrame) and \
+                self.state == "replying":
+            self.state = None
+            await self.end()
+        await self.push_frame(frame, direction)
+
+
+async def end_call(engine, arguments):  # pylint: disable=unused-argument
+    """ Hangs up once the model said goodbye """
+    logging.info("Terminating call...")
+    engine.hang_up()
+    return "The call ends after your reply: say a short goodbye."
+
+
+# the model says goodbye before the call hangs up, even when it called the
+# tool without a word
+PIPECAT_BUILTINS = {**BUILTINS,
+                    "terminate_call": (BUILTINS["terminate_call"][0],
+                                       end_call)}
+
+
 class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
     """ Runs a Pipecat pipeline for the call """
 
@@ -271,9 +334,45 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
             "llm", self.option("llm"),
             system_instruction=self.cfg.get("instructions",
                                             "PIPECAT_INSTRUCTIONS"))
+        self.transfer_to = self.cfg.get("transfer_to", "PIPECAT_TRANSFER_TO")
+        self.transfer_by = self.cfg.get(
+            "transfer_by", "PIPECAT_TRANSFER_BY", call.to)
+        self.tools = Tools(self.cfg.get("tools", "PIPECAT_TOOLS", []),
+                           self.cfg.get("mcp_servers", "PIPECAT_MCP_SERVERS"),
+                           PIPECAT_BUILTINS)
+        self.definitions = self.tools.load() or []
+        # one handler runs every tool the model calls
+        self.llm.register_function(None, self.run_tool)
+        self.hangup = HangUp(self.end_pipeline)
+        self.hangup_timer = None
         self.transport = None
         self.worker = None
+        self.ending = False
         self.closing = False
+
+    async def run_tool(self, params):
+        """ Runs a tool the model called and hands it the result """
+        result = await self.tools.run(self, params.function_name,
+                                      json.dumps(params.arguments))
+        # Pipecat encodes the result itself
+        try:
+            result = json.loads(result)
+        except (TypeError, ValueError):
+            pass
+        await params.result_callback(result)
+
+    def hang_up(self):
+        """ Ends the call after the model's goodbye, or once it is late """
+        self.hangup.ask()
+        self.hangup_timer = asyncio.create_task(
+            self.end_pipeline(HANGUP_TIMEOUT))
+
+    async def end_pipeline(self, delay=0):
+        """ Ends the pipeline once what is queued has been played """
+        await asyncio.sleep(delay)
+        if self.worker and not self.ending:
+            self.ending = True
+            await self.worker.queue_frame(EndFrame())
 
     def option(self, name):
         """ Returns a mandatory option of the flavor """
@@ -286,13 +385,16 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
         """ Builds the pipeline and runs it until the call ends """
         # the call sets its codec from ours once the engine is built
         self.transport = OpenSIPSTransport(self.call)
+        context = LLMContext()
+        if self.definitions:
+            context = LLMContext(tools=tools_schema(self.definitions))
         user, assistant = LLMContextAggregatorPair(
-            LLMContext(),
+            context,
             user_params=LLMUserAggregatorParams(
                 vad_analyzer=SileroVADAnalyzer()))
         pipeline = Pipeline([self.transport.input(), self.stt, user,
                              self.llm, self.tts, self.transport.output(),
-                             assistant])
+                             self.hangup, assistant])
         rate = self.codec.sample_rate
         self.worker = PipelineWorker(
             pipeline,
@@ -311,7 +413,8 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
         await runner.run()
         logging.info("Pipecat pipeline of %s ended", self.call.b2b_key)
         if not self.closing:
-            # the pipeline failed: do not leave the caller in silence
+            # the bot hung up, or the pipeline failed: do not leave the
+            # caller in silence
             self.call.terminate()
 
     async def send(self, audio):
@@ -322,6 +425,8 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
     async def close(self):
         """ Stops the pipeline """
         self.closing = True
+        if self.hangup_timer:
+            self.hangup_timer.cancel()
         if self.worker:
             await self.worker.cancel()
 

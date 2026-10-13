@@ -31,6 +31,10 @@ class FakeService():  # pylint: disable=too-few-public-methods
     def __init__(self, settings, **kwargs):
         self.settings = settings
         self.kwargs = kwargs
+        self.functions = {}
+
+    def register_function(self, name, handler):
+        self.functions[name] = handler
 
 
 class FakeSTT(FakeService):  # pylint: disable=too-few-public-methods
