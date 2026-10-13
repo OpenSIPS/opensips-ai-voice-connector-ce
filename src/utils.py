@@ -25,6 +25,7 @@ Module that provides helper functions for AI
 
 import re
 import zlib
+import logging
 from sipmessage import Address
 from deepgram_api import Deepgram
 from openai_api import OpenAI
@@ -36,6 +37,15 @@ FLAVORS = {"deepgram": Deepgram,
            "openai": OpenAI,
            "deepgram_native": DeepgramNative,
            "azure": AzureAI}
+
+# pipecat is an optional dependency, and is only offered when configured, so
+# that it does not change the default flavor of the existing setups
+if "pipecat" in Config.sections():
+    try:
+        from pipecat_api import Pipecat  # pylint: disable=import-outside-toplevel
+        FLAVORS["pipecat"] = Pipecat
+    except ImportError as e:
+        logging.error("[pipecat] is configured, but cannot be loaded: %s", e)
 
 
 # compact forms of header names (RFC 3261 7.3.3)
