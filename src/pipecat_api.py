@@ -23,10 +23,13 @@
 Pipecat pipeline over a G.711 call
 """
 
+import re
 import time
 import asyncio
 import audioop  # pylint: disable=deprecated-module
 import logging
+import importlib
+import dataclasses
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer  # pylint: disable=import-error
 from pipecat.frames.frames import (  # pylint: disable=import-error
@@ -45,9 +48,6 @@ from pipecat.processors.aggregators.llm_response_universal import (  # pylint: d
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
-from pipecat.services.deepgram.stt import DeepgramSTTService  # pylint: disable=import-error
-from pipecat.services.deepgram.tts import DeepgramTTSService  # pylint: disable=import-error
-from pipecat.services.openai.llm import OpenAILLMService  # pylint: disable=import-error
 from pipecat.transports.base_input import BaseInputTransport  # pylint: disable=import-error
 from pipecat.transports.base_output import BaseOutputTransport  # pylint: disable=import-error
 from pipecat.transports.base_transport import BaseTransport, TransportParams  # pylint: disable=import-error
@@ -59,6 +59,46 @@ from config import Config
 # audio packets queued ahead of playback: enough to absorb scheduling
 # jitter, few enough for an interruption to be heard at once
 PLAYBACK_LEAD = 4
+
+# the Pipecat service of each [<kind>:<name>] section's type:
+# (module, class, constructor argument of the `url` option, fixed arguments)
+# ponytail: one entry per vendor; options beyond key, url and SETTINGS are
+# not passed yet - add them here when a vendor needs one
+SERVICES = {
+    "stt": {
+        "deepgram": ("pipecat.services.deepgram.stt", "DeepgramSTTService",
+                     "base_url", {}),
+    },
+    "tts": {
+        "deepgram": ("pipecat.services.deepgram.tts", "DeepgramTTSService",
+                     "base_url", {}),
+        "elevenlabs": ("pipecat.services.elevenlabs.tts",
+                       "ElevenLabsTTSService", "url", {}),
+        "cartesia": ("pipecat.services.cartesia.tts", "CartesiaTTSService",
+                     "url", {}),
+        # OpenAI only speaks at 24 kHz; the transport resamples it
+        "openai": ("pipecat.services.openai.tts", "OpenAITTSService",
+                   "base_url", {"sample_rate": 24000}),
+        # runs in the engine; voice e.g. en_US-lessac-medium, downloaded on
+        # first use
+        "piper": ("pipecat.services.piper.tts", "PiperTTSService",
+                  None, {}),
+    },
+    "llm": {
+        "openai": ("pipecat.services.openai.llm", "OpenAILLMService",
+                   "base_url", {}),
+        "anthropic": ("pipecat.services.anthropic.llm", "AnthropicLLMService",
+                      None, {}),
+        "google": ("pipecat.services.google.llm", "GoogleLLMService",
+                   None, {}),
+        "ollama": ("pipecat.services.ollama.llm", "OLLamaLLMService",
+                   "base_url", {}),
+    },
+}
+
+# section options that go into the service's settings
+SETTINGS = {"model": "model", "language": "language", "voice": "voice",
+            "instructions": "system_instruction"}
 
 # PCM16 <-> G.711, per codec name
 DECODERS = {"mulaw": audioop.ulaw2lin, "alaw": audioop.alaw2lin}
@@ -169,6 +209,51 @@ class OpenSIPSTransport(BaseTransport):
         return self._output
 
 
+def env_name(*parts):
+    """ Returns the environment variable of an option, e.g. STT_DG_RO_KEY """
+    return re.sub(r"\W", "_", "_".join(parts)).upper()
+
+
+def make_service(kind, name, **settings):  # pylint: disable=too-many-locals
+    """ Builds the service of the [<kind>:<name>] section; `settings`
+        override the section's own """
+    section = f"{kind}:{name}"
+    if section not in Config.sections():
+        raise ValueError(f"[{section}] is not configured")
+    cfg = Config.get(section)
+
+    def get(option):
+        return cfg.get(option, env_name(kind, name, option))
+
+    stype = get("type")
+    if stype not in SERVICES[kind]:
+        raise ValueError(f"[{section}] has unknown type {stype}; "
+                         f"known: {', '.join(SERVICES[kind])}")
+    module, cls_name, url_arg, kwargs = SERVICES[kind][stype]
+    try:
+        cls = getattr(importlib.import_module(module), cls_name)
+    except ImportError as e:
+        raise ValueError(f"[{section}] needs pipecat-ai[{stype}]: {e}") from e
+
+    kwargs = dict(kwargs)
+    if key := get("key"):
+        kwargs["api_key"] = key
+    if url := get("url"):
+        if not url_arg:
+            raise ValueError(f"[{section}] {stype} does not take a url")
+        kwargs[url_arg] = url
+    fields = {f.name for f in dataclasses.fields(cls.Settings)}
+    values = {}
+    for option, field in SETTINGS.items():
+        value = settings.get(field) or get(option)
+        if not value:
+            continue
+        if field not in fields:
+            raise ValueError(f"[{section}] {stype} does not take {option}")
+        values[field] = value
+    return cls(settings=cls.Settings(**values), **kwargs)
+
+
 class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
     """ Runs a Pipecat pipeline for the call """
 
@@ -177,43 +262,37 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.codec = self.choose_codec(call.sdp)
         self.call = call
         self.cfg = Config.get("pipecat", cfg)
-        self.deepgram_key = self.cfg.get("deepgram_key", "DEEPGRAM_API_KEY")
-        self.openai_key = self.cfg.get("openai_key", "OPENAI_API_KEY")
-        self.model = self.cfg.get("model", "PIPECAT_MODEL", "gpt-4o")
-        self.language = self.cfg.get("language", "PIPECAT_LANGUAGE", "en-US")
-        self.speech_model = self.cfg.get("speech_model",
-                                         "PIPECAT_SPEECH_MODEL", "nova-3")
-        self.voice = self.cfg.get("voice", "PIPECAT_VOICE",
-                                  "aura-2-thalia-en")
         self.intro = self.cfg.get("welcome_message", "PIPECAT_WELCOME_MSG")
-        self.instructions = self.cfg.get(
-            "instructions", "PIPECAT_INSTRUCTIONS",
-            "Answer in short, spoken sentences.")
+        # services are built here, so a bad config rejects the call
+        self.stt = make_service("stt", self.option("stt"))
+        self.tts = make_service("tts", self.option("tts"))
+        # a bot's own instructions win over its model's
+        self.llm = make_service(
+            "llm", self.option("llm"),
+            system_instruction=self.cfg.get("instructions",
+                                            "PIPECAT_INSTRUCTIONS"))
         self.transport = None
         self.worker = None
         self.closing = False
+
+    def option(self, name):
+        """ Returns a mandatory option of the flavor """
+        value = self.cfg.get(name, env_name("pipecat", name))
+        if not value:
+            raise ValueError(f"[pipecat] needs {name}")
+        return value
 
     async def start(self):
         """ Builds the pipeline and runs it until the call ends """
         # the call sets its codec from ours once the engine is built
         self.transport = OpenSIPSTransport(self.call)
-        stt = DeepgramSTTService(
-            api_key=self.deepgram_key,
-            settings=DeepgramSTTService.Settings(
-                model=self.speech_model, language=self.language))
-        llm = OpenAILLMService(
-            api_key=self.openai_key,
-            settings=OpenAILLMService.Settings(
-                model=self.model, system_instruction=self.instructions))
-        tts = DeepgramTTSService(
-            api_key=self.deepgram_key,
-            settings=DeepgramTTSService.Settings(voice=self.voice))
         user, assistant = LLMContextAggregatorPair(
             LLMContext(),
             user_params=LLMUserAggregatorParams(
                 vad_analyzer=SileroVADAnalyzer()))
-        pipeline = Pipeline([self.transport.input(), stt, user, llm, tts,
-                             self.transport.output(), assistant])
+        pipeline = Pipeline([self.transport.input(), self.stt, user,
+                             self.llm, self.tts, self.transport.output(),
+                             assistant])
         rate = self.codec.sample_rate
         self.worker = PipelineWorker(
             pipeline,
