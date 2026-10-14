@@ -39,8 +39,11 @@ from pipecat.frames.frames import (  # pylint: disable=import-error
     EndFrame,
     InputAudioRawFrame,
     InterruptionFrame,
+    LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    LLMTextFrame,
+    StartFrame,
     TTSSpeakFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline  # pylint: disable=import-error
@@ -225,9 +228,9 @@ def env_name(*parts):
     return re.sub(r"\W", "_", "_".join(parts)).upper()
 
 
-def make_service(kind, name, **settings):  # pylint: disable=too-many-locals
-    """ Builds the service of the [<kind>:<name>] section; `settings`
-        override the section's own """
+def read_section(kind, name):
+    """ Returns a reader of the [<kind>:<name>] section's options, which
+        fall back to their environment variables """
     section = f"{kind}:{name}"
     if section not in Config.sections():
         raise ValueError(f"[{section}] is not configured")
@@ -235,7 +238,14 @@ def make_service(kind, name, **settings):  # pylint: disable=too-many-locals
 
     def get(option):
         return cfg.get(option, env_name(kind, name, option))
+    return get
 
+
+def make_service(kind, name, **settings):  # pylint: disable=too-many-locals
+    """ Builds the service of the [<kind>:<name>] section; `settings`
+        override the section's own """
+    section = f"{kind}:{name}"
+    get = read_section(kind, name)
     stype = get("type")
     if stype not in SERVICES[kind]:
         raise ValueError(f"[{section}] has unknown type {stype}; "
@@ -273,6 +283,105 @@ def tools_schema(definitions):
         properties=d.get("parameters", {}).get("properties", {}),
         required=d.get("parameters", {}).get("required", []))
         for d in definitions])
+
+
+def tool_exchanges(messages):
+    """ Returns the model's tool calls and their results, leaving out the
+        calls that have no result, e.g. those an interruption cut off """
+    results = {m.tool_call_id for m in messages if m.type == "tool"}
+    calls = [m for m in messages if getattr(m, "tool_calls", None) and
+             all(c["id"] in results for c in m.tool_calls)]
+    answered = {c["id"] for m in calls for c in m.tool_calls}
+    return [m for m in messages if m in calls or
+            (m.type == "tool" and m.tool_call_id in answered)]
+
+
+class VoiceAgentProcessor(FrameProcessor):
+    """ Runs a VoiceAgent in place of a Pipecat LLM service. The agent gets
+        the conversation as Pipecat keeps it, where an interrupted reply only
+        holds what the caller heard, plus the tools each reply called, so it
+        knows what it did even when the caller did not hear it """
+
+    def __init__(self, agent, engine):
+        super().__init__()
+        self.agent = agent
+        self.engine = engine
+        self.runnable = None
+        self.context = None
+        # the tool calls and results of each reply, by its place in history
+        self.tools_used = {}
+
+    def history(self):
+        """ Returns the conversation: the user's and the bot's turns """
+        if not self.context:
+            return []
+        return [m for m in self.context.get_messages()
+                if isinstance(m, dict) and
+                m.get("role") in ("user", "assistant") and
+                isinstance(m.get("content"), str) and m["content"]]
+
+    def conversation(self):
+        """ Returns the history with each reply's tool calls before it """
+        messages = []
+        said = self.history()
+        for index, message in enumerate(said + [None]):
+            messages += self.tools_used.get(index, [])
+            if message:
+                messages.append(message)
+        return messages
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, StartFrame):
+            await self.push_frame(frame, direction)
+            await self.agent.on_start()
+            self.runnable = self.agent.build()
+            return
+        if isinstance(frame, LLMContextFrame):
+            self.context = frame.context
+            await self.reply()
+            return
+        await self.push_frame(frame, direction)
+
+    async def reply(self):
+        """ Streams the agent's reply to the conversation """
+        index = len(self.history())
+        produced = []
+        await self.push_frame(LLMFullResponseStartFrame())
+        try:
+            async for mode, data in self.runnable.astream(
+                    {"messages": self.conversation()},
+                    stream_mode=["messages", "updates"]):
+                if mode == "updates":
+                    # the nodes' complete messages, for the tool calls
+                    for update in data.values():
+                        if isinstance(update, dict):
+                            produced += update.get("messages", [])
+                    continue
+                chunk, metadata = data
+                # the model's words, not the tools' results
+                if metadata.get("langgraph_node") in \
+                        self.agent.speaking_nodes and \
+                        chunk.type in ("ai", "AIMessageChunk") and chunk.text:
+                    await self.push_frame(LLMTextFrame(chunk.text))
+        except Exception as e:  # pylint: disable=broad-except
+            await self.push_error(error_msg=f"VoiceAgent failed: {e}",
+                                  exception=e)
+        finally:
+            # kept even when interrupted: the tools did run
+            self.tools_used.setdefault(index, []).extend(
+                tool_exchanges(produced))
+            await self.push_frame(LLMFullResponseEndFrame())
+        # the agent says goodbye in the same reply that hung up
+        if self.engine.hanging_up:
+            await self.engine.end_pipeline()
+
+    async def finish(self):
+        """ Hands the agent the conversation once the call ended """
+        try:
+            await self.agent.on_end(self.history())
+        except Exception as e:  # pylint: disable=broad-except
+            logging.exception("VoiceAgent on_end failed: %s", e)
 
 
 class HangUp(FrameProcessor):
@@ -329,11 +438,6 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
         # services are built here, so a bad config rejects the call
         self.stt = make_service("stt", self.option("stt"))
         self.tts = make_service("tts", self.option("tts"))
-        # a bot's own instructions win over its model's
-        self.llm = make_service(
-            "llm", self.option("llm"),
-            system_instruction=self.cfg.get("instructions",
-                                            "PIPECAT_INSTRUCTIONS"))
         self.transfer_to = self.cfg.get("transfer_to", "PIPECAT_TRANSFER_TO")
         self.transfer_by = self.cfg.get(
             "transfer_by", "PIPECAT_TRANSFER_BY", call.to)
@@ -341,19 +445,49 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
                            self.cfg.get("mcp_servers", "PIPECAT_MCP_SERVERS"),
                            PIPECAT_BUILTINS)
         self.definitions = self.tools.load() or []
-        # one handler runs every tool the model calls
-        self.llm.register_function(None, self.run_tool)
+        # a bot's own instructions win over its model's
+        instructions = self.cfg.get("instructions", "PIPECAT_INSTRUCTIONS")
+        llm = self.option("llm")
+        if read_section("llm", llm)("type") == "langchain":
+            self.llm = self.make_agent(llm, instructions)
+        else:
+            self.llm = make_service("llm", llm,
+                                    system_instruction=instructions)
+            # one handler runs every tool the model calls
+            self.llm.register_function(None, self.run_tool)
         self.hangup = HangUp(self.end_pipeline)
         self.hangup_timer = None
+        self.hanging_up = False
         self.transport = None
         self.worker = None
         self.ending = False
         self.closing = False
 
+    def make_agent(self, name, instructions):
+        """ Returns the processor running the VoiceAgent of [llm:<name>] """
+        try:
+            # pylint: disable=import-outside-toplevel
+            from agent import CallInfo, call_tools, load_agent
+        except ImportError as e:
+            raise ValueError(f"[llm:{name}] needs langchain: {e}") from e
+        get = read_section("llm", name)
+        values = {o: get(o) for o in ("model", "key", "url", "instructions")}
+        if instructions:
+            values["instructions"] = instructions
+        cfg = Config.get(f"llm:{name}",
+                         {k: v for k, v in values.items() if v})
+        agent = load_agent(get("agent"))(
+            cfg, CallInfo.from_call(self.call),
+            call_tools(self.definitions, self.call_tool))
+        return VoiceAgentProcessor(agent, self)
+
+    async def call_tool(self, name, arguments):
+        """ Runs a tool; returns its result as text, or None """
+        return await self.tools.run(self, name, json.dumps(arguments))
+
     async def run_tool(self, params):
         """ Runs a tool the model called and hands it the result """
-        result = await self.tools.run(self, params.function_name,
-                                      json.dumps(params.arguments))
+        result = await self.call_tool(params.function_name, params.arguments)
         # Pipecat encodes the result itself
         try:
             result = json.loads(result)
@@ -363,6 +497,7 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
 
     def hang_up(self):
         """ Ends the call after the model's goodbye, or once it is late """
+        self.hanging_up = True
         self.hangup.ask()
         self.hangup_timer = asyncio.create_task(
             self.end_pipeline(HANGUP_TIMEOUT))
@@ -416,6 +551,9 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
             # the bot hung up, or the pipeline failed: do not leave the
             # caller in silence
             self.call.terminate()
+        # once the pipeline stopped, the conversation holds its last words
+        if isinstance(self.llm, VoiceAgentProcessor):
+            await self.llm.finish()
 
     async def send(self, audio):
         """ Sends audio to the pipeline """
