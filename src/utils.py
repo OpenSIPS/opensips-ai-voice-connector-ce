@@ -53,6 +53,14 @@ def get_header(params, header):
     return hdr_lines[0].split(":", 1)[1].strip()
 
 
+def get_sipfrag_status(params):
+    """ Returns the status of a NOTIFY's sipfrag body (RFC 3515), e.g.
+        "486 Busy Here", or None """
+    match = re.match(r"SIP/2\.0 ([1-6]\d\d.*)",
+                     (params.get('body') or '').strip())
+    return match.group(1).strip() if match else None
+
+
 def get_to(params):
     """ Returns the To line parameters """
     to_line = get_header(params, "To")
