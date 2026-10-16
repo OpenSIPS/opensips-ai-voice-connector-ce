@@ -121,9 +121,12 @@ def handle_call(call, key, method, params):
             return
 
         sdp_str = params['body']
-        # remove rtcp line, since the parser throws an error on it
+        # remove rtcp line, since the parser throws an error on it, and
+        # ssrc lines without an attribute (some softphones send them)
         sdp_str = "\n".join([line for line in sdp_str.split("\n")
-                             if not line.startswith("a=rtcp:")])
+                             if not line.startswith("a=rtcp:") and
+                             not (line.startswith("a=ssrc:") and
+                                  len(line.split()) < 2)])
         sdp = SessionDescription.parse(sdp_str)
 
         if call:
