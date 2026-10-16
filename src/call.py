@@ -91,7 +91,7 @@ class Call():  # pylint: disable=too-many-instance-attributes
 
         self.sdp = self.get_new_sdp(sdp, rtp_ip)
 
-        asyncio.create_task(self.ai.start())
+        self.ai_task = asyncio.create_task(self.ai.start())
 
         self.first_packet = True
         loop = asyncio.get_running_loop()
@@ -233,6 +233,8 @@ class Call():  # pylint: disable=too-many-instance-attributes
         self.serversock.close()
         available_ports.add(free_port)
         self.stop_event.set()
+        # the AI may still be connecting
+        self.ai_task.cancel()
         await self.ai.close()
 
     def terminate(self):
