@@ -161,7 +161,7 @@ def handle_call(call, key, method, params):
         mi_reply(key, method, 200, 'OK')
         sub_state = utils.get_header(params, "Subscription-State")
         if "terminated" in sub_state:
-            call.terminated = True
+            call.transfer_ended(utils.get_sipfrag_status(params))
     
     elif method == 'BYE':
         asyncio.create_task(call.close())

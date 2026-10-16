@@ -48,6 +48,10 @@ class AIEngine(ABC):
     async def close(self):
         """ closes the session """
 
+    async def transfer_failed(self, status):
+        """ the call could not be transferred (`status`, e.g. "486 Busy
+            Here") and goes on """
+
     def choose_codec(self, sdp):
         """ Returns the preferred codec from a list """
         codecs = get_codecs(sdp)
