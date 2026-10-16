@@ -167,6 +167,14 @@ def handle_call(call, key, method, params):
         asyncio.create_task(call.close())
         calls.pop(key, None)
 
+    elif method != 'ACK' and not int(params.get('status') or 0):
+        # any other in-dialog request still needs a final response; replies
+        # (status set) need none. OPTIONS is answered 200 (RFC 3261 11.2)
+        if method == 'OPTIONS':
+            mi_reply(key, method, 200, 'OK')
+        else:
+            mi_reply(key, method, 501, 'Not Implemented')
+
 
 def udp_handler(data):
     """ UDP handler of events received """
