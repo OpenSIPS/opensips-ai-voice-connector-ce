@@ -210,11 +210,9 @@ class Call():  # pylint: disable=too-many-instance-attributes
                 if self.terminated:
                     self.terminate()
                     return
-                if not self.paused:
-                    payload = self.codec.get_silence()
-                else:
-                    payload = None
-            if payload:
+                payload = self.codec.get_silence()
+            # nothing is sent on hold, not even audio already queued
+            if payload and not self.paused:
                 rtp_packet = generate_rtp_packet({
                     'version': 2,
                     'padding': 0,
