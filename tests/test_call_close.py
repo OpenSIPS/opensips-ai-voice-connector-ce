@@ -19,6 +19,8 @@ def make_call(engine):
     call.serversock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     call.serversock.bind(("127.0.0.1", 0))
     call.stop_event = asyncio.Event()
+    call.closed = False
+    call.on_close = None
     call.ai = engine
     call.ai_task = asyncio.create_task(engine.start())
     return call
