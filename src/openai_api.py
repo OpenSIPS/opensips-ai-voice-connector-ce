@@ -284,6 +284,21 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         """ Terminates the call """
         self.call.terminated = True
 
+    async def transfer_failed(self, status):
+        """ Lets the model tell the caller that the transfer failed """
+        await self.ws.send(json.dumps({
+            "type": "conversation.item.create",
+            "item": {
+                "type": "message",
+                "role": "system",
+                "content": [{
+                    "type": "input_text",
+                    "text": f"The transfer failed: {status}"
+                }]
+            }
+        }))
+        await self.ws.send(json.dumps({"type": "response.create"}))
+
     async def run_in_thread(self, func, *args):
         """ Runs a function in a thread """
         return await asyncio.to_thread(func, *args)

@@ -145,6 +145,15 @@ class Call():  # pylint: disable=too-many-instance-attributes
 
         self.paused = True
 
+    def transfer_ended(self, status):
+        """ Ends the call if the transfer succeeded; RFC 5589 6.3: if it
+            failed, the call goes on """
+        if status and status[0] != "2":
+            logging.info("Transfer of %s failed: %s", self.b2b_key, status)
+            asyncio.create_task(self.ai.transfer_failed(status))
+        else:
+            self.terminated = True
+
     def read_rtp(self):
         """ Reads a RTP packet """
 
