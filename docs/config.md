@@ -41,7 +41,7 @@ engine uses two main sections:
 The list of parameters to be tuned for each section can be found in the
 [parameters](#global-parameters) paragraph.
 
-For each [AI flavor](docs/ai-flavors.md) being used, you can define a new
+For each [AI flavor](./ai-flavors.md) being used, you can define a new
 section with the flavor's name containing parameters specific to the engine.
 Each section/flavor can may also contain a common set of parameters described
 in the [common flavor parameters](#common-flavor-parameters) paragraph.
