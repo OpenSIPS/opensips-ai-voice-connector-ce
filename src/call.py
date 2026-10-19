@@ -151,6 +151,9 @@ class Call():  # pylint: disable=too-many-instance-attributes
         self.sdp.media[0].direction = "recvonly"
 
         self.paused = True
+        # audio queued so far would play out of place on resume
+        while not self.rtp.empty():
+            self.rtp.get_nowait()
 
     def transfer_ended(self, status):
         """ Ends the call if the transfer succeeded; RFC 5589 6.3: if it
@@ -229,6 +232,9 @@ class Call():  # pylint: disable=too-many-instance-attributes
                 sequence_number += 1
                 self.serversock.sendto(bytes.fromhex(rtp_packet),
                                        (self.client_addr, self.client_port))
+            elif self.paused:
+                # RFC 3551 4.1: mark the first packet after the gap
+                marker = 1
 
             timestamp += ts_inc
             packet_no += 1
