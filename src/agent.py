@@ -31,15 +31,18 @@ from langchain.agents import create_agent  # pylint: disable=import-error
 from langchain.chat_models import init_chat_model  # pylint: disable=import-error
 from langchain_core.tools import StructuredTool  # pylint: disable=import-error
 from sipmessage import Address
+from utils import COMPACT_HEADERS
 
 DEFAULT_INSTRUCTIONS = "Answer in short, spoken sentences."
 
 
 def find_header(headers, name):
-    """ Returns the value of a header in a block of headers, or None """
+    """ Returns the value of a header in a block of headers, given in long
+        or compact form, or None """
+    names = {name.lower(), COMPACT_HEADERS.get(name.lower())}
     for line in headers.splitlines():
         key, sep, value = line.partition(":")
-        if sep and key.strip().lower() == name.lower():
+        if sep and key.strip().lower() in names:
             return value.strip()
     return None
 

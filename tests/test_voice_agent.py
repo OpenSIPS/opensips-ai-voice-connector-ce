@@ -269,6 +269,12 @@ class TestAgentParts(unittest.IsolatedAsyncioTestCase):
         info = CallInfo.from_call(SimpleNamespace(b2b_key="k", call_id="c",
                                                   headers=None))
         self.assertIsNone(info.caller)
+        # compact header names (RFC 3261 7.3.3)
+        info = CallInfo.from_call(SimpleNamespace(
+            b2b_key="k", call_id="c",
+            headers="f: <sip:ana@example.com>\r\nt: <sip:bot@example.com>"))
+        self.assertEqual(info.caller, "sip:ana@example.com")
+        self.assertEqual(info.callee, "sip:bot@example.com")
 
     async def test_call_tools(self):
         seen = []
