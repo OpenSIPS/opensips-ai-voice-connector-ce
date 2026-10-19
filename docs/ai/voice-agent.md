@@ -111,7 +111,9 @@ words.
 
 When the model calls `terminate_call`, the tool asks it for a short goodbye,
 and the call ends once the goodbye was played. `transfer_call` transfers the
-call to the `transfer_to` of the `pipecat` section.
+call to the `transfer_to` of the `pipecat` section, and is only offered when
+it is set. If the transfer fails, the agent gets a user turn saying why, e.g.
+*(The transfer failed: 486 Busy Here)*, and the call goes on.
 
 ### Your Own Graph
 

@@ -9,8 +9,8 @@ from mcp_types import Tool
 
 import mcp_client
 from mcp_client import MCPTools
-from openai_api import OpenAI, BUILTINS
-from tools import Tools
+from openai_api import OpenAI
+from tools import BUILTINS, Tools
 from .test_mcp_client import FakeSession, make_server, schema
 from .test_mcp_integration import MCPTestCase
 from .test_mcp_integration import make_server as make_test_server

@@ -28,10 +28,10 @@ import asyncio
 import azure.cognitiveservices.speech as speechsdk  # pylint: disable=import-error,no-name-in-module
 
 from ai import AIEngine
-from chatgpt_api import ChatGPT
+from chatgpt_api import ChatGPT, end_call
 from codec import UnsupportedCodec
 from config import Config
-from tools import Tools
+from tools import Tools, flavor_builtins
 
 
 class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
@@ -70,8 +70,11 @@ class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         speech_config.speech_synthesis_language = self.language
         speech_config.speech_synthesis_voice_name = self.voice
 
+        self.hanging_up = False
         self.tools = Tools(self.cfg.get("tools", "AZURE_TOOLS", []),
-                           self.cfg.get("mcp_servers", "AZURE_MCP_SERVERS"))
+                           self.cfg.get("mcp_servers", "AZURE_MCP_SERVERS"),
+                           flavor_builtins(self, "AZURE",
+                                           terminate_call=end_call))
         self.llm = ChatGPT(chatgpt_key, chatgpt_model, self.tools, self)
 
         if self.codec.name == "mulaw":
@@ -153,17 +156,11 @@ class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
 
     async def handle_phrase(self, phrase):
         """ Handles the response from a phrase """
-        drain = True
+        await self.llm.reply(self.b2b_key, phrase)
 
-        def speak(text):
-            # only the first reply of the turn interrupts the playback
-            nonlocal drain
-            asyncio.create_task(self.process_speech(text, drain))
-            drain = False
-
-        response = await self.llm.handle(self.b2b_key, phrase, speak)
-        if response:
-            speak(response)
+    async def transfer_failed(self, status):
+        """ Lets the model tell the caller that the transfer failed """
+        await self.handle_phrase(f"(The transfer failed: {status})")
 
     async def start(self):
         """ Starts the Azure AI engine """

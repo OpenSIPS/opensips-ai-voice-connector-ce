@@ -193,6 +193,21 @@ The model sees the server's tools as `shop__<tool>`, next to the tools from
 how sessions are shared between calls, and how failures are handled.
 
 
+## Call Control
+
+Every flavor also gives the model two built-in tools:
+
+* `terminate_call` hangs up. The model says goodbye first, and the call ends
+  once the goodbye was played.
+* `transfer_call` transfers the call with a SIP REFER to the flavor's
+  `transfer_to` (with `transfer_by` as the `Referred-By`, by default the
+  called URI). It is only offered when `transfer_to` is set. When the
+  transfer succeeds the call ends; when it fails, e.g. the operator is busy,
+  the model is told why and the call goes on.
+
+A tools file can override them by defining a function of the same name.
+
+
 ## Getting Started
 
 The simplest way to get the project running is using the Docker Compose files

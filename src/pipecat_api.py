@@ -75,7 +75,7 @@ from pipecat.workers.runner import WorkerRunner  # pylint: disable=import-error
 
 from ai import AIEngine
 from config import Config
-from tools import Tools, BUILTINS
+from tools import Tools, GOODBYE, flavor_builtins
 
 # audio packets queued ahead of playback: enough to absorb scheduling
 # jitter, few enough for an interruption to be heard at once
@@ -522,14 +522,7 @@ async def end_call(engine, arguments):  # pylint: disable=unused-argument
     """ Hangs up once the model said goodbye """
     logging.info("Terminating call...")
     engine.hang_up()
-    return "The call ends after your reply: say a short goodbye."
-
-
-# the model says goodbye before the call hangs up, even when it called the
-# tool without a word
-PIPECAT_BUILTINS = {**BUILTINS,
-                    "terminate_call": (BUILTINS["terminate_call"][0],
-                                       end_call)}
+    return GOODBYE
 
 
 class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
@@ -549,12 +542,12 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
         # services are built here, so a bad config rejects the call
         self.stt = make_service("stt", self.option("stt"))
         self.tts = make_service("tts", self.option("tts"))
-        self.transfer_to = self.cfg.get("transfer_to", "PIPECAT_TRANSFER_TO")
-        self.transfer_by = self.cfg.get(
-            "transfer_by", "PIPECAT_TRANSFER_BY", call.to)
+        # the model says goodbye before the call hangs up, even when it
+        # called the tool without a word
         self.tools = Tools(self.cfg.get("tools", "PIPECAT_TOOLS", []),
                            self.cfg.get("mcp_servers", "PIPECAT_MCP_SERVERS"),
-                           PIPECAT_BUILTINS)
+                           flavor_builtins(self, "PIPECAT",
+                                           terminate_call=end_call))
         self.definitions = self.tools.load() or []
         # a bot's own instructions win over its model's
         instructions = self.cfg.get("instructions", "PIPECAT_INSTRUCTIONS")

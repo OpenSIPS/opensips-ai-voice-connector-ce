@@ -31,9 +31,21 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from ai import AIEngine
 from config import Config
-from tools import Tools, function_schema
+from tools import GOODBYE, Tools, flavor_builtins, function_schema
 
 DEEPGRAM_VOICE_AGENT_URL = "wss://agent.deepgram.com/v1/agent/converse"
+
+# seconds the agent has to say goodbye once it hung up
+HANGUP_TIMEOUT = 10
+
+
+async def end_call(engine, arguments):  # pylint: disable=unused-argument
+    """ Hangs up once the agent spoke its next reply, the goodbye """
+    logging.info("Terminating call...")
+    engine.hangup = "asked"
+    asyncio.get_running_loop().call_later(HANGUP_TIMEOUT,
+                                          engine.terminate_call)
+    return GOODBYE
 
 
 class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
@@ -63,9 +75,12 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.llm_url = self.cfg.get("llm_url", "DEEPGRAM_LLM_URL")
         self.llm_key = self.cfg.get("llm_key", "DEEPGRAM_LLM_KEY")
         self.llm_model = self.cfg.get("llm_model", "DEEPGRAM_LLM_MODEL")
+        # None, then "asked" once the agent hung up, then "replying"
+        self.hangup = None
         self.tools = Tools(
             self.cfg.get("tools", "DEEPGRAM_NATIVE_TOOLS", []),
-            self.cfg.get("mcp_servers", "DEEPGRAM_NATIVE_MCP_SERVERS"))
+            self.cfg.get("mcp_servers", "DEEPGRAM_NATIVE_MCP_SERVERS"),
+            flavor_builtins(self, "DEEPGRAM_NATIVE", terminate_call=end_call))
 
         # normalize codec
         if self.codec.name == "mulaw":
@@ -196,6 +211,13 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
                                 self.codec.parse, None, leftovers)
                             self.queue.put_nowait(packet)
                             leftovers = b''
+                        if self.hangup == "replying":
+                            # the goodbye is queued: hang up once played
+                            self.terminate_call()
+                    elif t == "AgentStartedSpeaking" and \
+                            self.hangup == "asked":
+                        # the reply that called the tool may end after it
+                        self.hangup = "replying"
                     elif t == "UserStartedSpeaking":
                         leftovers = b''
                         self.drain_queue()
@@ -221,6 +243,13 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
                 "name": fct["name"],
                 "content": "null" if result is None else result
             }))
+
+    async def transfer_failed(self, status):
+        """ Lets the agent tell the caller that the transfer failed """
+        await self.ws.send(json.dumps({
+            "type": "InjectUserMessage",
+            "content": f"(The transfer failed: {status})"
+        }))
 
     def drain_queue(self):
         """ Drains the playback queue """

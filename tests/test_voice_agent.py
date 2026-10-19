@@ -334,7 +334,7 @@ class TestFlavor(unittest.TestCase):
         return Pipecat(call, {"llm": "support", **bot})
 
     def test_support_agent(self):
-        engine = self.make_engine({})
+        engine = self.make_engine({"transfer_to": "sip:human@example.com"})
         self.assertIsInstance(engine.llm, VoiceAgentProcessor)
         voice = engine.llm.agent
         self.assertEqual(type(voice).__name__, "SupportAgent")

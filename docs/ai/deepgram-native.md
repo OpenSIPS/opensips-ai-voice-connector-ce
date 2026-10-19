@@ -32,6 +32,8 @@ The following parameters can be tuned for this engine:
 | `deepgram_native` | `llm_model` | `DEEPGRAM_LLM_MODEL` | no | The LLM model; required with `llm_url` | `gpt-4o` |
 | `deepgram_native` | `tools` | `DEEPGRAM_NATIVE_TOOLS` | no | A file or a comma-separated list of files where the [tools](../../README.md#tools) available to the model are defined | not set |
 | `deepgram_native` | `mcp_servers` | `DEEPGRAM_NATIVE_MCP_SERVERS` | no | Comma-separated list of the [MCP servers](../mcp.md) whose tools the model can use | not set |
+| `deepgram_native` | `transfer_to` | `DEEPGRAM_NATIVE_TRANSFER_TO` | no | The SIP URI that [`transfer_call`](../../README.md#call-control) transfers the call to | not set |
+| `deepgram_native` | `transfer_by` | `DEEPGRAM_NATIVE_TRANSFER_BY` | no | The `Referred-By` of the transfer | the called URI |
 | `deepgram_native` | `disabled` | `DEEPGRAM_NATIVE_DISABLE`   | no | Disables the flavor | false |
 
 Parameters not set in the `deepgram_native` section are taken from the

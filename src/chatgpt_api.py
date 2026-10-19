@@ -21,12 +21,21 @@
 
 """ Communicates with ChatGPT AI """
 
+import asyncio
 import logging
 from openai import AsyncOpenAI  # pylint: disable=import-error
-from tools import function_schema  # pylint: disable=import-error
+from tools import GOODBYE, function_schema  # pylint: disable=import-error
 
 # rounds of tool calls in a row before giving up on a reply
 MAX_TOOL_ROUNDS = 5
+
+
+async def end_call(engine, arguments):  # pylint: disable=unused-argument
+    """ Hangs up once the engine spoke the reply of the turn, the goodbye:
+        the tool runs before the reply is spoken """
+    logging.info("Terminating call...")
+    engine.hanging_up = True
+    return GOODBYE
 
 
 class ChatGPT:
@@ -100,6 +109,27 @@ class ChatGPT:
             return None
         logging.info("Assistant: %s", reply.content)
         return reply.content
+
+    async def reply(self, b2b_key, phrase):
+        """ Speaks the replies to a phrase with the engine; the call ends
+            once the goodbye of a hang up was played """
+        drain = True
+        speeches = []
+
+        def speak(text):
+            # only the first reply of the turn interrupts the playback
+            nonlocal drain
+            speeches.append(asyncio.create_task(
+                self.engine.process_speech(text, drain)))
+            drain = False
+
+        response = await self.handle(b2b_key, phrase, speak)
+        if response:
+            speak(response)
+        if self.engine.hanging_up:
+            # the goodbye is queued once spoken, and played before the BYE
+            await asyncio.gather(*speeches)
+            self.engine.call.terminated = True
 
     async def close(self):
         """ Closes the HTTP client """

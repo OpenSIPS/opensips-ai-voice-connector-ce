@@ -36,10 +36,10 @@ from deepgram.core.events import EventType
 from deepgram.listen.v1.types import ListenV1Results
 
 from ai import AIEngine
-from chatgpt_api import ChatGPT
+from chatgpt_api import ChatGPT, end_call
 from config import Config
 from codec import get_codecs, CODECS
-from tools import Tools
+from tools import Tools, flavor_builtins
 
 
 class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
@@ -55,8 +55,11 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
                                      "gpt-4o")
 
         self.call = call
+        self.hanging_up = False
         self.tools = Tools(self.cfg.get("tools", "DEEPGRAM_TOOLS", []),
-                           self.cfg.get("mcp_servers", "DEEPGRAM_MCP_SERVERS"))
+                           self.cfg.get("mcp_servers", "DEEPGRAM_MCP_SERVERS"),
+                           flavor_builtins(self, "DEEPGRAM",
+                                           terminate_call=end_call))
         self.chatgpt = ChatGPT(chatgpt_key, chatgpt_model, self.tools, self)
         self.deepgram = AsyncDeepgramClient(api_key=self.cfg.get("key",
                                                                  "DEEPGRAM_API_KEY"))
@@ -177,17 +180,11 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
 
     async def handle_phrase(self, phrase):
         """ handles the response of a phrase """
-        drain = True
+        await self.chatgpt.reply(self.b2b_key, phrase)
 
-        def speak(text):
-            # only the first reply of the turn interrupts the playback
-            nonlocal drain
-            asyncio.create_task(self.process_speech(text, drain))
-            drain = False
-
-        response = await self.chatgpt.handle(self.b2b_key, phrase, speak)
-        if response:
-            speak(response)
+    async def transfer_failed(self, status):
+        """ Lets the model tell the caller that the transfer failed """
+        await self.handle_phrase(f"(The transfer failed: {status})")
 
     async def close(self):
         """ closes the Deepgram session """

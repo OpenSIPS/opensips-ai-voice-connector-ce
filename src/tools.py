@@ -88,6 +88,24 @@ BUILTINS = {
     }, transfer_call)
 }
 
+# the result of a hang up that waits for the model's goodbye
+GOODBYE = "The call ends after your reply: say a short goodbye."
+
+
+def flavor_builtins(engine, env, **overrides):
+    """ Returns the call control tools of a flavor, whose settings are read
+        from its section or from the `<env>_TRANSFER_TO/BY` variables;
+        `overrides` replace the functions that run some of them """
+    engine.transfer_to = engine.cfg.get("transfer_to", f"{env}_TRANSFER_TO")
+    engine.transfer_by = engine.cfg.get(
+        "transfer_by", f"{env}_TRANSFER_BY", engine.call.to)
+    tools = {name: (definition, overrides.get(name, func))
+             for name, (definition, func) in BUILTINS.items()}
+    # nowhere to transfer to
+    if not engine.transfer_to:
+        tools.pop("transfer_call")
+    return tools
+
 
 def function_schema(definition):
     """ Returns a tool definition without its Realtime `type` """

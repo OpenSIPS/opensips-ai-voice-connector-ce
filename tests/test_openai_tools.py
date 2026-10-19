@@ -5,8 +5,8 @@ import os
 import tempfile
 import unittest
 
-from openai_api import OpenAI, BUILTINS
-from tools import Tools
+from openai_api import OpenAI
+from tools import BUILTINS, Tools
 
 
 def make_engine(tools_files):

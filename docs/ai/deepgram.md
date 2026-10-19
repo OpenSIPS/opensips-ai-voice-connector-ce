@@ -70,4 +70,6 @@ The following parameters can be tuned for this engine:
 | `deepgram` | `instructions` | `DEEPGRAM_INSTRUCTIONS` | no | Instructions for the assistant (ChatGPT) | `` |
 | `deepgram` | `tools` | `DEEPGRAM_TOOLS` | no | A file or a comma-separated list of files where the [tools](../../README.md#tools) available to the model are defined | not set |
 | `deepgram` | `mcp_servers` | `DEEPGRAM_MCP_SERVERS` | no | Comma-separated list of the [MCP servers](../mcp.md) whose tools the model can use | not set |
+| `deepgram` | `transfer_to` | `DEEPGRAM_TRANSFER_TO` | no | The SIP URI that [`transfer_call`](../../README.md#call-control) transfers the call to | not set |
+| `deepgram` | `transfer_by` | `DEEPGRAM_TRANSFER_BY` | no | The `Referred-By` of the transfer | the called URI |
 | `deepgram` | `disabled` | `DEEPGRAM_DISABLE`   | no | Disables the flavor | false |

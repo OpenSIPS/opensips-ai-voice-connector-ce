@@ -66,4 +66,6 @@ configuration file:
 | `azure` | `instructions` | `AZURE_INSTRUCTIONS` | no | Some instructions for the assistant (ChatGPT) | |
 | `azure` | `tools` | `AZURE_TOOLS` | no | A file or a comma-separated list of files where the [tools](../../README.md#tools) available to the model are defined | not set |
 | `azure` | `mcp_servers` | `AZURE_MCP_SERVERS` | no | Comma-separated list of the [MCP servers](../mcp.md) whose tools the model can use | not set |
+| `azure` | `transfer_to` | `AZURE_TRANSFER_TO` | no | The SIP URI that [`transfer_call`](../../README.md#call-control) transfers the call to | not set |
+| `azure` | `transfer_by` | `AZURE_TRANSFER_BY` | no | The `Referred-By` of the transfer | the called URI |
 | `azure` | `disabled` | `AZURE_DISABLE` | no | Disables the flavor | false |

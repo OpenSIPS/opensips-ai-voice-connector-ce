@@ -106,7 +106,9 @@ The model can call the same [tools](../../README.md#tools) as in the other
 flavors: functions from tools files, the tools of [MCP servers](../mcp.md),
 and two built-in ones:
 
-* `transfer_call` transfers the call to `transfer_to`, with a SIP REFER.
+* `transfer_call` transfers the call to `transfer_to`, with a SIP REFER. It
+  is only offered when `transfer_to` is set; if the transfer fails, the model
+  is told why and the call goes on.
 * `terminate_call` hangs up. The model is asked to say goodbye first, and the
   call ends once the goodbye was played, even when the model hung up without
   a word.
