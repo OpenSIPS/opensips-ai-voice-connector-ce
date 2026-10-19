@@ -38,16 +38,27 @@ FLAVORS = {"deepgram": Deepgram,
            "azure": AzureAI}
 
 
+# compact forms of header names (RFC 3261 7.3.3)
+COMPACT_HEADERS = {"call-id": "i", "contact": "m", "content-encoding": "e",
+                   "content-length": "l", "content-type": "c", "event": "o",
+                   "from": "f", "refer-to": "r", "referred-by": "b",
+                   "session-expires": "x", "subject": "s", "supported": "k",
+                   "to": "t", "via": "v"}
+
+
 class UnknownSIPUser(Exception):
     """ User is not known """
 
 
 def get_header(params, header):
-    """ Returns a specific line from headers """
+    """ Returns a specific line from headers, given in long or compact form """
     if 'headers' not in params:
         return None
+    names = header
+    if header.lower() in COMPACT_HEADERS:
+        names = f"(?:{header}|{COMPACT_HEADERS[header.lower()]})"
     hdr_lines = [line for line in params['headers'].splitlines()
-                 if re.match(f"{header}:", line, re.I)]
+                 if re.match(f"{names}:", line, re.I)]
     if len(hdr_lines) == 0:
         return None
     return hdr_lines[0].split(":", 1)[1].strip()
