@@ -27,6 +27,7 @@ import re
 import zlib
 import logging
 from sipmessage import Address
+from sipmessage.message import COMPACT_FORMS
 from deepgram_api import Deepgram
 from openai_api import OpenAI
 from deepgram_native_api import DeepgramNative
@@ -50,14 +51,6 @@ if "pipecat" in Config.sections():
         logging.error("[pipecat] is configured, but cannot be loaded: %s", e)
 
 
-# compact forms of header names (RFC 3261 7.3.3)
-COMPACT_HEADERS = {"call-id": "i", "contact": "m", "content-encoding": "e",
-                   "content-length": "l", "content-type": "c", "event": "o",
-                   "from": "f", "refer-to": "r", "referred-by": "b",
-                   "session-expires": "x", "subject": "s", "supported": "k",
-                   "to": "t", "via": "v"}
-
-
 class UnknownSIPUser(Exception):
     """ User is not known """
 
@@ -66,14 +59,12 @@ def get_header(params, header):
     """ Returns a specific line from headers, given in long or compact form """
     if 'headers' not in params:
         return None
-    names = header
-    if header.lower() in COMPACT_HEADERS:
-        names = f"(?:{header}|{COMPACT_HEADERS[header.lower()]})"
-    hdr_lines = [line for line in params['headers'].splitlines()
-                 if re.match(f"{names}:", line, re.I)]
-    if len(hdr_lines) == 0:
-        return None
-    return hdr_lines[0].split(":", 1)[1].strip()
+    for line in params['headers'].splitlines():
+        name, sep, value = line.partition(":")
+        name = name.strip().lower()
+        if sep and COMPACT_FORMS.get(name, name).lower() == header.lower():
+            return value.strip()
+    return None
 
 
 def get_sipfrag_status(params):
