@@ -42,6 +42,7 @@ from pipecat.frames.frames import (  # pylint: disable=import-error
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    LLMMessagesAppendFrame,
     LLMTextFrame,
     StartFrame,
     TTSSpeakFrame,
@@ -665,6 +666,15 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
         # once the pipeline stopped, the conversation holds its last words
         if isinstance(self.llm, VoiceAgentProcessor):
             await self.llm.finish()
+
+    async def transfer_failed(self, status):
+        """ Lets the model tell the caller that the transfer failed """
+        if self.worker:
+            # a user turn, which every LLM and the VoiceAgent take
+            await self.worker.queue_frame(LLMMessagesAppendFrame(
+                [{"role": "user",
+                  "content": f"(The transfer failed: {status})"}],
+                run_llm=True))
 
     async def send(self, audio):
         """ Sends audio to the pipeline """

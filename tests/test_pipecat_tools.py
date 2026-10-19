@@ -18,6 +18,7 @@ import audioop  # pylint: disable=deprecated-module
 from aiortc import RTCRtpCodecParameters
 from pipecat.frames.frames import (EndFrame, LLMFullResponseEndFrame,
                                    LLMFullResponseStartFrame,
+                                   LLMMessagesAppendFrame,
                                    OutputAudioRawFrame)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
@@ -115,6 +116,15 @@ class TestPipecatTools(unittest.IsolatedAsyncioTestCase):
                       args["extra_headers"])
         self.assertIn("Referred-By: sip:bot@example.com",
                       args["extra_headers"])
+
+    async def test_transfer_failed(self):
+        # the model hears of it and answers the caller
+        self.engine.worker = mock.AsyncMock()
+        await self.engine.transfer_failed("486 Busy Here")
+        frame = self.engine.worker.queue_frame.call_args.args[0]
+        self.assertIsInstance(frame, LLMMessagesAppendFrame)
+        self.assertTrue(frame.run_llm)
+        self.assertIn("486 Busy Here", frame.messages[0]["content"])
 
     async def test_terminate(self):
         self.engine.worker = mock.AsyncMock()
