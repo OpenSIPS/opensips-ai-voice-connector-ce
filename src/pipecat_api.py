@@ -45,6 +45,11 @@ from pipecat.frames.frames import (  # pylint: disable=import-error
     LLMTextFrame,
     StartFrame,
     TTSSpeakFrame,
+    UserStoppedSpeakingFrame,
+)
+from pipecat.audio.utils import (  # pylint: disable=import-error
+    create_stream_resampler,
+    is_silence,
 )
 from pipecat.pipeline.pipeline import Pipeline  # pylint: disable=import-error
 from pipecat.pipeline.worker import (  # pylint: disable=import-error
@@ -58,6 +63,10 @@ from pipecat.processors.aggregators.llm_response_universal import (  # pylint: d
     LLMUserAggregatorParams,
 )
 from pipecat.processors.frame_processor import FrameProcessor  # pylint: disable=import-error
+from pipecat.turns.user_stop.speech_timeout_user_turn_stop_strategy import (  # pylint: disable=import-error
+    SpeechTimeoutUserTurnStopStrategy,
+)
+from pipecat.turns.user_turn_strategies import UserTurnStrategies  # pylint: disable=import-error
 from pipecat.transports.base_input import BaseInputTransport  # pylint: disable=import-error
 from pipecat.transports.base_output import BaseOutputTransport  # pylint: disable=import-error
 from pipecat.transports.base_transport import BaseTransport, TransportParams  # pylint: disable=import-error
@@ -71,8 +80,15 @@ from tools import Tools, BUILTINS
 # jitter, few enough for an interruption to be heard at once
 PLAYBACK_LEAD = 4
 
+# the caller's audio goes into the pipeline at the rate speech models take:
+# local ones such as Whisper and Pipecat's turn model read it as 16 kHz
+SPEECH_RATE = 16000
+
 # seconds the model has to say goodbye once it hung up
 HANGUP_TIMEOUT = 10
+
+# seconds of silence that end the caller's turn, with turn_detection silence
+TURN_SILENCE = 0.6
 
 # the Pipecat service of each [<kind>:<name>] section's type:
 # (module, class, constructor argument of the `url` option, fixed arguments)
@@ -82,6 +98,9 @@ SERVICES = {
     "stt": {
         "deepgram": ("pipecat.services.deepgram.stt", "DeepgramSTTService",
                      "base_url", {}),
+        # runs in the engine; model e.g. base.en, downloaded on first use
+        "whisper": ("pipecat.services.whisper.stt", "WhisperSTTService",
+                    None, {"device": "cpu", "compute_type": "int8"}),
     },
     "tts": {
         "deepgram": ("pipecat.services.deepgram.tts", "DeepgramTTSService",
@@ -132,6 +151,8 @@ class OpenSIPSInputTransport(BaseInputTransport):
     def __init__(self, params, codec):
         super().__init__(params)
         self.decode = DECODERS[codec.name]
+        self.codec_rate = codec.sample_rate
+        self.resampler = create_stream_resampler()
         self.ready = False
 
     async def start(self, frame):
@@ -151,10 +172,10 @@ class OpenSIPSInputTransport(BaseInputTransport):
         """ Pushes one RTP payload; dropped until the pipeline started """
         if not self.ready:
             return
+        audio = await self.resampler.resample(
+            self.decode(payload, 2), self.codec_rate, self.sample_rate)
         await self.push_audio_frame(InputAudioRawFrame(
-            audio=self.decode(payload, 2),
-            sample_rate=self.sample_rate,
-            num_channels=1))
+            audio=audio, sample_rate=self.sample_rate, num_channels=1))
 
 
 class OpenSIPSOutputTransport(BaseOutputTransport):  # pylint: disable=abstract-method
@@ -167,6 +188,8 @@ class OpenSIPSOutputTransport(BaseOutputTransport):  # pylint: disable=abstract-
         self.leftovers = b''
         # when the audio queued so far ends playing
         self.play_end = 0
+        # when the caller's last turn ended, until the bot answers
+        self.turn_end = None
 
     async def start(self, frame):
         await super().start(frame)
@@ -179,10 +202,17 @@ class OpenSIPSOutputTransport(BaseOutputTransport):  # pylint: disable=abstract-
             drain_queue(self.call.rtp)
             self.leftovers = b''
             self.play_end = 0
+        elif isinstance(frame, UserStoppedSpeakingFrame):
+            self.turn_end = time.monotonic()
 
     async def write_audio_frame(self, frame):
         if not frame.audio:
             return True
+        if self.turn_end and not is_silence(frame.audio):
+            logging.info("%s: answered %d ms after the caller stopped",
+                         self.call.b2b_key,
+                         (time.monotonic() - self.turn_end) * 1000)
+            self.turn_end = None
         packets, self.leftovers = self.call.codec.parse(
             self.encode(frame.audio, 2), self.leftovers)
         for packet in packets:
@@ -205,12 +235,11 @@ class OpenSIPSTransport(BaseTransport):
 
     def __init__(self, call):
         super().__init__()
-        rate = call.codec.sample_rate
         params = TransportParams(
             audio_in_enabled=True,
-            audio_in_sample_rate=rate,
+            audio_in_sample_rate=SPEECH_RATE,
             audio_out_enabled=True,
-            audio_out_sample_rate=rate,
+            audio_out_sample_rate=call.codec.sample_rate,
             # one ptime of audio per write
             audio_out_10ms_chunks=call.codec.ptime // 10)
         self._input = OpenSIPSInputTransport(params, call.codec)
@@ -241,6 +270,61 @@ def read_section(kind, name):
     return get
 
 
+class SharedModels():
+    """ Stands for the model class of a local Pipecat service, so a model
+        is loaded once and shared by the calls, instead of on each call """
+
+    def __init__(self, model_cls):
+        self.model_cls = model_cls
+        self.models = {}
+
+    def shared(self, make, *args, **kwargs):
+        """ Returns the model `make` loads with these arguments, loaded on
+            first use """
+        key = (make.__name__, repr(args), repr(sorted(kwargs.items())))
+        if key not in self.models:
+            self.models[key] = make(*args, **kwargs)
+        return self.models[key]
+
+    def __call__(self, *args, **kwargs):
+        # e.g. WhisperModel(name, device=...)
+        return self.shared(self.model_cls, *args, **kwargs)
+
+    def load(self, *args, **kwargs):
+        """ e.g. PiperVoice.load(path, use_cuda=...) """
+        return self.shared(self.model_cls.load, *args, **kwargs)
+
+
+# the model class each local service loads its model with, in its module
+LOCAL_MODELS = {("tts", "piper"): "PiperVoice",
+                ("stt", "whisper"): "WhisperModel"}
+
+
+def share_models(module, name):
+    """ Has the service of `module` share the models of its class `name` """
+    # ponytail: replaces a name in Pipecat's module; if a Pipecat upgrade
+    # stops loading models through it, models are loaded per call again -
+    # then subclass the service instead
+    if not isinstance(getattr(module, name), SharedModels):
+        setattr(module, name, SharedModels(getattr(module, name)))
+
+
+def preload_models():
+    """ Loads the models of the configured local services, so the first
+        call does not wait for a download, nor stall the other calls """
+    for section in Config.sections():
+        kind, _, name = section.partition(":")
+        if kind not in ("stt", "tts"):
+            continue
+        if (kind, read_section(kind, name)("type")) not in LOCAL_MODELS:
+            continue
+        try:
+            make_service(kind, name)
+            logging.info("[%s] model loaded", section)
+        except Exception as e:  # pylint: disable=broad-except
+            logging.error("[%s] model cannot be loaded: %s", section, e)
+
+
 def make_service(kind, name, **settings):  # pylint: disable=too-many-locals
     """ Builds the service of the [<kind>:<name>] section; `settings`
         override the section's own """
@@ -252,9 +336,12 @@ def make_service(kind, name, **settings):  # pylint: disable=too-many-locals
                          f"known: {', '.join(SERVICES[kind])}")
     module, cls_name, url_arg, kwargs = SERVICES[kind][stype]
     try:
-        cls = getattr(importlib.import_module(module), cls_name)
+        module = importlib.import_module(module)
     except ImportError as e:
         raise ValueError(f"[{section}] needs pipecat-ai[{stype}]: {e}") from e
+    if (kind, stype) in LOCAL_MODELS:
+        share_models(module, LOCAL_MODELS[kind, stype])
+    cls = getattr(module, cls_name)
 
     kwargs = dict(kwargs)
     if key := get("key"):
@@ -273,6 +360,24 @@ def make_service(kind, name, **settings):  # pylint: disable=too-many-locals
             raise ValueError(f"[{section}] {stype} does not take {option}")
         values[field] = value
     return cls(settings=cls.Settings(**values), **kwargs)
+
+
+def turn_strategies(detection, silence):
+    """ Returns how the caller's turn ends: after a pause ("silence"), or
+        when Pipecat's turn model judges it complete ("smart"), which is
+        trained on 16 kHz speech and often misjudges 8 kHz calls """
+    if detection == "smart":
+        return None  # Pipecat's default
+    if detection != "silence":
+        raise ValueError(f"[pipecat] turn_detection {detection} is not "
+                         f"silence or smart")
+    try:
+        silence = float(silence)
+    except ValueError as e:
+        raise ValueError(f"[pipecat] turn_silence {silence} is not a "
+                         f"number of seconds") from e
+    return UserTurnStrategies(stop=[SpeechTimeoutUserTurnStopStrategy(
+        user_speech_timeout=silence)])
 
 
 def tools_schema(definitions):
@@ -435,6 +540,11 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.call = call
         self.cfg = Config.get("pipecat", cfg)
         self.intro = self.cfg.get("welcome_message", "PIPECAT_WELCOME_MSG")
+        self.turn_strategies = turn_strategies(
+            self.cfg.get("turn_detection", "PIPECAT_TURN_DETECTION",
+                         "silence"),
+            self.cfg.get("turn_silence", "PIPECAT_TURN_SILENCE",
+                         TURN_SILENCE))
         # services are built here, so a bad config rejects the call
         self.stt = make_service("stt", self.option("stt"))
         self.tts = make_service("tts", self.option("tts"))
@@ -526,15 +636,16 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
         user, assistant = LLMContextAggregatorPair(
             context,
             user_params=LLMUserAggregatorParams(
-                vad_analyzer=SileroVADAnalyzer()))
+                vad_analyzer=SileroVADAnalyzer(),
+                user_turn_strategies=self.turn_strategies))
         pipeline = Pipeline([self.transport.input(), self.stt, user,
                              self.llm, self.tts, self.transport.output(),
                              self.hangup, assistant])
-        rate = self.codec.sample_rate
         self.worker = PipelineWorker(
             pipeline,
-            params=PipelineParams(audio_in_sample_rate=rate,
-                                  audio_out_sample_rate=rate),
+            params=PipelineParams(
+                audio_in_sample_rate=SPEECH_RATE,
+                audio_out_sample_rate=self.codec.sample_rate),
             enable_rtvi=False,
             # silence does not end a call; the SIP dialog does
             idle_timeout_secs=None,

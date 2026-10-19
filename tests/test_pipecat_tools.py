@@ -165,7 +165,7 @@ class TestHangUp(unittest.IsolatedAsyncioTestCase):
         hangup = HangUp(end)
         worker = PipelineWorker(
             Pipeline([transport.input(), transport.output(), hangup]),
-            params=PipelineParams(audio_in_sample_rate=8000,
+            params=PipelineParams(audio_in_sample_rate=16000,
                                   audio_out_sample_rate=8000),
             enable_rtvi=False, idle_timeout_secs=None)
         # the model hung up, then says 400 ms of goodbye

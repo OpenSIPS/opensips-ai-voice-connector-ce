@@ -23,15 +23,20 @@ from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.workers.runner import WorkerRunner
 
 from codec import PCMA, PCMU
-from pipecat_api import OpenSIPSTransport, PLAYBACK_LEAD
+from pipecat_api import OpenSIPSTransport, PLAYBACK_LEAD, SPEECH_RATE
 
 
 class Loopback(FrameProcessor):
     """ Plays back what the caller says """
 
+    def __init__(self):
+        super().__init__()
+        self.rates = set()
+
     async def process_frame(self, frame, direction):
         await super().process_frame(frame, direction)
         if isinstance(frame, InputAudioRawFrame):
+            self.rates.add(frame.sample_rate)
             frame = OutputAudioRawFrame(audio=frame.audio,
                                         sample_rate=frame.sample_rate,
                                         num_channels=1)
@@ -62,7 +67,7 @@ class TestOpenSIPSTransport(unittest.IsolatedAsyncioTestCase):
         transport = OpenSIPSTransport(call)
         worker = PipelineWorker(
             Pipeline([transport.input(), *processors, transport.output()]),
-            params=PipelineParams(audio_in_sample_rate=8000,
+            params=PipelineParams(audio_in_sample_rate=SPEECH_RATE,
                                   audio_out_sample_rate=8000),
             enable_rtvi=False, idle_timeout_secs=None)
         runner = WorkerRunner(handle_sigint=False)
@@ -80,9 +85,9 @@ class TestOpenSIPSTransport(unittest.IsolatedAsyncioTestCase):
         await worker.cancel()
         await running
 
-    async def play(self, call, payloads):
+    async def play(self, call, payloads, loopback):
         """ Sends the payloads in real time, returns what is played back """
-        transport, _ = await self.run_pipeline(call, Loopback())
+        transport, _ = await self.run_pipeline(call, loopback)
         played = []
         for payload in payloads:
             await transport.input().feed(payload)
@@ -97,13 +102,23 @@ class TestOpenSIPSTransport(unittest.IsolatedAsyncioTestCase):
 
     async def check_loopback(self, codec):
         call = make_call(codec)
-        payloads = tone(call.codec, 25)
-        played = await self.play(call, payloads)
+        loopback = Loopback()
+        played = await self.play(call, tone(call.codec, 25), loopback)
+        # the pipeline hears the caller at the rate speech models take
+        self.assertEqual(loopback.rates, {SPEECH_RATE})
         self.assertTrue(played, "nothing was played back")
         self.assertTrue(all(len(p) == 160 for p in played),
                         "packets are not 20 ms of G.711")
-        # the caller's audio comes back unchanged, in order
-        self.assertIn(b''.join(payloads[5:15]), b''.join(played))
+        # the caller's tone comes back as the same tone: 440 Hz
+        decode = audioop.ulaw2lin if call.codec.name == "mulaw" \
+            else audioop.alaw2lin
+        pcm = decode(b''.join(played[5:15]), 2)
+        samples = [int.from_bytes(pcm[i:i + 2], "little", signed=True)
+                   for i in range(0, len(pcm), 2)]
+        crossings = sum(1 for a, b in zip(samples, samples[1:])
+                        if (a < 0) != (b < 0))
+        self.assertAlmostEqual(crossings / 2 / (len(samples) / 8000), 440,
+                               delta=20)
 
     async def test_pcmu_loopback(self):
         await self.check_loopback(PCMU)

@@ -42,8 +42,10 @@ FLAVORS = {"deepgram": Deepgram,
 # that it does not change the default flavor of the existing setups
 if "pipecat" in Config.sections():
     try:
-        from pipecat_api import Pipecat  # pylint: disable=import-outside-toplevel
+        # pylint: disable=import-outside-toplevel
+        from pipecat_api import Pipecat, preload_models
         FLAVORS["pipecat"] = Pipecat
+        preload_models()
     except ImportError as e:
         logging.error("[pipecat] is configured, but cannot be loaded: %s", e)
 
