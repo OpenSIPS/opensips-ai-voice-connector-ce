@@ -239,8 +239,8 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         """ Terminates the call """
         self.call.terminated = True
 
-    async def transfer_failed(self, status):
-        """ Lets the model tell the caller that the transfer failed """
+    async def notify(self, text):
+        """ Tells the model what happened, and lets it answer """
         await self.ws.send(json.dumps({
             "type": "conversation.item.create",
             "item": {
@@ -248,7 +248,7 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
                 "role": "system",
                 "content": [{
                     "type": "input_text",
-                    "text": f"The transfer failed: {status}"
+                    "text": text
                 }]
             }
         }))

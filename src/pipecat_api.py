@@ -660,13 +660,13 @@ class Pipecat(AIEngine):  # pylint: disable=too-many-instance-attributes
         if isinstance(self.llm, VoiceAgentProcessor):
             await self.llm.finish()
 
-    async def transfer_failed(self, status):
-        """ Lets the model tell the caller that the transfer failed """
+    async def notify(self, text):
+        """ Tells the model what happened, and lets it answer """
         if self.worker:
-            # a user turn, which every LLM and the VoiceAgent take
+            # a user turn, which every LLM and the VoiceAgent take; the
+            # parentheses tell it apart from the words of the caller
             await self.worker.queue_frame(LLMMessagesAppendFrame(
-                [{"role": "user",
-                  "content": f"(The transfer failed: {status})"}],
+                [{"role": "user", "content": f"({text})"}],
                 run_llm=True))
 
     async def send(self, audio):

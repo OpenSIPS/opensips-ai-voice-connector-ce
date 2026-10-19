@@ -48,9 +48,10 @@ class AIEngine(ABC):
     async def close(self):
         """ closes the session """
 
-    async def transfer_failed(self, status):
-        """ the call could not be transferred (`status`, e.g. "486 Busy
-            Here") and goes on """
+    @abstractmethod
+    async def notify(self, text):
+        """ tells the model `text`, something that happened in the call
+            rather than words of the caller, and lets it answer the caller """
 
     def choose_codec(self, sdp):
         """ Returns the preferred codec from a list """

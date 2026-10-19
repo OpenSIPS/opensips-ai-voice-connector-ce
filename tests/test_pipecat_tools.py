@@ -117,10 +117,10 @@ class TestPipecatTools(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Referred-By: sip:bot@example.com",
                       args["extra_headers"])
 
-    async def test_transfer_failed(self):
+    async def test_notify(self):
         # the model hears of it and answers the caller
         self.engine.worker = mock.AsyncMock()
-        await self.engine.transfer_failed("486 Busy Here")
+        await self.engine.notify("The transfer failed: 486 Busy Here")
         frame = self.engine.worker.queue_frame.call_args.args[0]
         self.assertIsInstance(frame, LLMMessagesAppendFrame)
         self.assertTrue(frame.run_llm)

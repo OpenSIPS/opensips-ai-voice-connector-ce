@@ -182,9 +182,9 @@ class Deepgram(AIEngine):  # pylint: disable=too-many-instance-attributes
         """ handles the response of a phrase """
         await self.chatgpt.reply(self.b2b_key, phrase)
 
-    async def transfer_failed(self, status):
-        """ Lets the model tell the caller that the transfer failed """
-        await self.handle_phrase(f"(The transfer failed: {status})")
+    async def notify(self, text):
+        """ Tells the model what happened, and lets it answer """
+        await self.handle_phrase(f"({text})")
 
     async def close(self):
         """ closes the Deepgram session """

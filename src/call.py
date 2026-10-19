@@ -157,7 +157,8 @@ class Call():  # pylint: disable=too-many-instance-attributes
             failed, the call goes on """
         if status and status[0] != "2":
             logging.info("Transfer of %s failed: %s", self.b2b_key, status)
-            asyncio.create_task(self.ai.transfer_failed(status))
+            asyncio.create_task(
+                self.ai.notify(f"The transfer failed: {status}"))
         else:
             self.terminated = True
 

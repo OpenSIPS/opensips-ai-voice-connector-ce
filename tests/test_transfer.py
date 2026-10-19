@@ -12,13 +12,13 @@ from .test_openai_mcp import FakeWS
 
 
 class FakeAI():  # pylint: disable=too-few-public-methods
-    """ Records the failed transfers """
+    """ Records what the model is told """
 
     def __init__(self):
-        self.failed = []
+        self.told = []
 
-    async def transfer_failed(self, status):
-        self.failed.append(status)
+    async def notify(self, text):
+        self.told.append(text)
 
 
 def notify(state, body):
@@ -44,13 +44,13 @@ class TestNotify(unittest.IsolatedAsyncioTestCase):
         call = await self.handle("terminated;reason=noresource",
                                  "SIP/2.0 200 OK\r\n")
         self.assertTrue(call.terminated)
-        self.assertEqual(call.ai.failed, [])
+        self.assertEqual(call.ai.told, [])
 
     async def test_failure(self):
         call = await self.handle("terminated;reason=noresource",
                                  "SIP/2.0 486 Busy Here\r\n")
         self.assertFalse(call.terminated)
-        self.assertEqual(call.ai.failed, ["486 Busy Here"])
+        self.assertEqual(call.ai.told, ["The transfer failed: 486 Busy Here"])
 
     async def test_no_sipfrag(self):
         call = await self.handle("terminated", "")
@@ -59,12 +59,12 @@ class TestNotify(unittest.IsolatedAsyncioTestCase):
     async def test_trying(self):
         call = await self.handle("active;expires=60", "SIP/2.0 100 Trying\r\n")
         self.assertFalse(call.terminated)
-        self.assertEqual(call.ai.failed, [])
+        self.assertEqual(call.ai.told, [])
 
     async def test_openai(self):
         ai = OpenAI.__new__(OpenAI)
         ai.ws = FakeWS([])
-        await ai.transfer_failed("486 Busy Here")
+        await ai.notify("The transfer failed: 486 Busy Here")
         item, response = ai.ws.sent
         self.assertEqual(item["item"]["role"], "system")
         self.assertIn("486 Busy Here", item["item"]["content"][0]["text"])

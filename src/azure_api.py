@@ -158,9 +158,9 @@ class AzureAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         """ Handles the response from a phrase """
         await self.llm.reply(self.b2b_key, phrase)
 
-    async def transfer_failed(self, status):
-        """ Lets the model tell the caller that the transfer failed """
-        await self.handle_phrase(f"(The transfer failed: {status})")
+    async def notify(self, text):
+        """ Tells the model what happened, and lets it answer """
+        await self.handle_phrase(f"({text})")
 
     async def start(self):
         """ Starts the Azure AI engine """

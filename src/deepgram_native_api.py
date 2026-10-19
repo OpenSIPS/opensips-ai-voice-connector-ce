@@ -244,11 +244,11 @@ class DeepgramNative(AIEngine):  # pylint: disable=too-many-instance-attributes
                 "content": "null" if result is None else result
             }))
 
-    async def transfer_failed(self, status):
-        """ Lets the agent tell the caller that the transfer failed """
+    async def notify(self, text):
+        """ Tells the agent what happened, and lets it answer """
         await self.ws.send(json.dumps({
             "type": "InjectUserMessage",
-            "content": f"(The transfer failed: {status})"
+            "content": f"({text})"
         }))
 
     def drain_queue(self):

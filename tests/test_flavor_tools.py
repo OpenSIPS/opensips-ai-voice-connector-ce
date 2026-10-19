@@ -194,7 +194,7 @@ class TestBuiltins(unittest.TestCase):
 
 class TestChatGPTCallControl(unittest.IsolatedAsyncioTestCase):
     """ The ChatGPT based flavors hang up once the goodbye was spoken, and
-        tell the caller when a transfer failed """
+        answer what they are told """
 
     async def run_phrase(self, cls, llm, reply, method="handle_phrase",
                          arg="bye"):
@@ -233,23 +233,23 @@ class TestChatGPTCallControl(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(spoken, [("Goodbye!", False)])
         self.assertTrue(engine.call.terminated)
 
-    async def check_transfer_failed(self, cls, llm):
+    async def check_notify(self, cls, llm):
         async def reply(engine):  # pylint: disable=unused-argument
             return "Nobody is free, can I help?"
 
         engine, spoken, heard = await self.run_phrase(
-            cls, llm, reply, "transfer_failed", "486 Busy Here")
+            cls, llm, reply, "notify", "The transfer failed: 486 Busy Here")
         self.assertIn("486 Busy Here", heard[0])
         self.assertEqual(spoken, [("Nobody is free, can I help?", False)])
         self.assertFalse(engine.call.terminated)
 
     async def test_deepgram(self):
         await self.check_goodbye(Deepgram, "chatgpt")
-        await self.check_transfer_failed(Deepgram, "chatgpt")
+        await self.check_notify(Deepgram, "chatgpt")
 
     async def test_azure(self):
         await self.check_goodbye(AzureAI, "llm")
-        await self.check_transfer_failed(AzureAI, "llm")
+        await self.check_notify(AzureAI, "llm")
 
 
 class TestDeepgramNativeCallControl(unittest.IsolatedAsyncioTestCase):
@@ -282,10 +282,10 @@ class TestDeepgramNativeCallControl(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.1)
         self.assertTrue(engine.call.terminated)
 
-    async def test_transfer_failed(self):
+    async def test_notify(self):
         engine = self.make_engine()
         engine.ws = FakeWS([])
-        await engine.transfer_failed("486 Busy Here")
+        await engine.notify("The transfer failed: 486 Busy Here")
         message, = engine.ws.sent
         self.assertEqual(message["type"], "InjectUserMessage")
         self.assertIn("486 Busy Here", message["content"])
