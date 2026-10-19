@@ -56,7 +56,8 @@ class Call():  # pylint: disable=too-many-instance-attributes
                  to: str,
                  cfg,
                  call_id,
-                 headers=None):
+                 headers=None,
+                 on_close=None):
         host_ip = rtp_cfg.get('bind_ip', 'RTP_BIND_IP', '0.0.0.0')
         try:
             hostname = socket.gethostbyname(socket.gethostname())
@@ -77,6 +78,9 @@ class Call():  # pylint: disable=too-many-instance-attributes
         self.client_port = sdp.media[0].port
         self.paused = False
         self.terminated = False
+        self.closed = False
+        # called once the call is closed, e.g. to forget it
+        self.on_close = on_close
 
         self.rtp = Queue()
         self.stop_event = asyncio.Event()
@@ -237,7 +241,12 @@ class Call():  # pylint: disable=too-many-instance-attributes
                 await asyncio.sleep(float(drift))
 
     async def close(self):
-        """ Closes the call """
+        """ Closes the call; closing it again does nothing """
+        if self.closed:
+            return
+        self.closed = True
+        if self.on_close:
+            self.on_close()
         logging.info("Call %s closing", self.b2b_key)
         loop = asyncio.get_running_loop()
         loop.remove_reader(self.serversock.fileno())

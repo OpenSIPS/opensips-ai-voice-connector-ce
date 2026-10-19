@@ -141,9 +141,11 @@ def handle_call(call, key, method, params):
 
         try:
             flavor, to, cfg = parse_params(params)
+            # a call the engine hangs up is forgotten as one hung up by BYE
             new_call = Call(key, mi_conn, sdp, flavor, to, cfg,
                             utils.get_header(params, "Call-ID"),
-                            params.get("headers"))
+                            params.get("headers"),
+                            on_close=lambda: calls.pop(key, None))
             calls[key] = new_call
             mi_reply(key, method, 200, 'OK', new_call.get_body())
         except UnsupportedCodec:
@@ -212,7 +214,8 @@ async def shutdown(s, loop, event):
     for task in tasks:
         task.cancel()
     logging.info("Cancelling %d outstanding tasks", len(tasks))
-    for call in calls.values():
+    # closing a call removes it from calls
+    for call in list(calls.values()):
         if call.terminated:
             continue
         await call.close()
