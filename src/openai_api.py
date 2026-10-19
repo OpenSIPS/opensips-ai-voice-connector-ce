@@ -337,6 +337,7 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
             self.terminate_call()
 
     async def close(self):
-        await self.ws.close()
+        if self.ws:
+            await self.ws.close()
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
