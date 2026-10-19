@@ -27,7 +27,7 @@ services:
     platform: linux/amd64
     build:
       dockerfile_inline: |
-        FROM opensips/opensips:latest
+        FROM opensips/opensips:4.0
         RUN apt -y update && apt -y install gettext-base
       args:
         OPENSIPS_CLI: true

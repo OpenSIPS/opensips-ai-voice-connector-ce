@@ -21,7 +21,7 @@ services:
     container_name: ai-voice-connector-opensips
     build:
       dockerfile_inline: |
-        FROM opensips/opensips:latest
+        FROM opensips/opensips:4.0
         RUN apt -y update && apt -y install gettext-base
     volumes:
       - ./os:/etc/opensips/
@@ -34,7 +34,7 @@ services:
     container_name: ai-voice-connector-b2b_opensips
     build:
       dockerfile_inline: |
-        FROM opensips/opensips:latest
+        FROM opensips/opensips:4.0
         RUN apt -y update && apt -y install gettext-base
       args:
         OPENSIPS_CLI: true
@@ -45,7 +45,7 @@ services:
     env_file:
       - .env
     healthcheck:
-      test: opensips-cli -x mi sr_get_status core | grep -q 'running'
+      test: opensips-cli -x mi status_report:get core | grep -q 'running'
       interval: 1s
       retries: 10
       timeout: 2s
