@@ -101,6 +101,7 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
         self.call = call
         self.ws = None
         self.session = None
+        self.session_updated = False
         self.intro = None
         self.transfer_to = None
         self.transfer_by = None
@@ -277,8 +278,17 @@ class OpenAI(AIEngine):  # pylint: disable=too-many-instance-attributes
                         }
                     }))
                     await self.ws.send(json.dumps({"type": "response.create"}))
+            elif t == "session.updated":
+                self.session_updated = True
             elif t == "error":
-                logging.info(msg)
+                logging.error(msg)
+                if not self.session_updated:
+                    # e.g. a setting the model does not take; the session
+                    # would go on in the default audio format
+                    logging.error(
+                        "OpenAI rejected the session. Terminating call.")
+                    self.terminate_call()
+                    return
 
     def terminate_call(self):
         """ Terminates the call """
