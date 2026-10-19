@@ -1,0 +1,47 @@
+services:
+  engine:
+    container_name: ai-voice-connector-pipecat-engine
+    build:
+      context: ../../
+      dockerfile: ./docker/Dockerfile
+      args:
+        # the Pipecat services the configuration uses, and the VoiceAgent's
+        EXTRA_MODULES: "pipecat-ai[silero,deepgram,openai,piper,whisper]==1.12.0 langchain==1.4.5 langgraph==1.2.15 langchain-openai==1.7.1"
+    network_mode: host
+    volumes:
+      # the tools, the MCP server and the VoiceAgent of the simple example
+      - ../simple/conn:/app/cfg/
+      - ./conn:/app/pipecat/
+      # keeps the downloaded voice and speech models across restarts
+      - models:/root/.cache
+    environment:
+      CONFIG_FILE: /app/pipecat/pipecat.ini
+    env_file:
+      - .env
+    depends_on:
+      opensips:
+        condition: service_healthy
+
+  opensips:
+    container_name: ai-voice-connector-pipecat-opensips
+    platform: linux/amd64
+    build:
+      dockerfile_inline: |
+        FROM opensips/opensips:latest
+        RUN apt -y update && apt -y install gettext-base
+      args:
+        OPENSIPS_CLI: true
+    command: -p /etc/opensips/substenv.sh
+    volumes:
+      - ../simple/b2b:/etc/opensips/
+    network_mode: host
+    env_file:
+      - .env
+    healthcheck:
+      test: opensips-cli -x mi status_report:get core | grep -q 'running'
+      interval: 1s
+      retries: 10
+      timeout: 2s
+
+volumes:
+  models:

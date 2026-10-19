@@ -33,6 +33,15 @@ The Deepgram Native flavor uses the [Deepgram's](https://deepgram.com/) new Voic
 
 The Azure flavor uses the [Azure's AI Speech](https://azure.microsoft.com/en-us/products/ai-services/ai-speech/) STT and TTS in combination with ChatGPT API to provide a seamless voice interaction, like the Deepgram flavor. You can read more about this flavor [here](ai/azure.md).
 
+### Pipecat
+
+The Pipecat flavor runs the call through a [Pipecat](https://github.com/pipecat-ai/pipecat)
+pipeline, where the Speech-to-Text, the LLM and the Text-to-Speech services
+are each chosen in the configuration, from many vendors, cloud or local, and
+mixed freely. The LLM can also be a [VoiceAgent](ai/voice-agent.md): a
+LangChain agent that you extend in your own Python file. You can read more
+about this flavor [here](ai/pipecat.md).
+
 ## Flavor Selection
 
 For every new call, the engine needs to select an AI flavor to use. For this,

@@ -49,6 +49,10 @@ supported flavors are:
 * [Deepgram Native](docs/ai/deepgram-native.md): use Deepgram Voice Agent - their
                                                  new Voice-to-Voice engine
 * [Azure](docs/ai/azure.md): use Azure Speech-to-Text and Text-to-Speech
+* [Pipecat](docs/ai/pipecat.md): combine any supported Speech-to-Text, LLM
+                                 and Text-to-Speech services, cloud or local,
+                                 or answer with your own
+                                 [LangChain agent](docs/ai/voice-agent.md)
 
 Check out the [AI Flavors](docs/ai-flavors.md) page for more information.
 

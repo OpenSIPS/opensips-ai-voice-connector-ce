@@ -49,6 +49,10 @@ in the [common flavor parameters](#common-flavor-parameters) paragraph.
 Each [MCP server](mcp.md) whose tools are given to the AI model is declared in
 its own `[mcp:<name>]` section.
 
+The services of the [Pipecat flavor](ai/pipecat.md) are declared in their own
+`[stt:<name>]`, `[tts:<name>]` and `[llm:<name>]` sections, which the
+`pipecat` section refers to by name.
+
 ## Environment
 
 Most of the parameters that can be tuned through the configuration file,
