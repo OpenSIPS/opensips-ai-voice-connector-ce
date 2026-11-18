@@ -20,17 +20,22 @@ OPENAI_API_KEY= # here you should put your OpenAI API key
 DEEPGRAM_API_KEY= # here you should put your Deepgram API key
 ```
 
-* **Alternatively, there is a configuration file**, [`simple.ini`](../examples/simple/conn/simple.ini), which you can use to set the configuration parameters. Values in this file override the environment variables, so if your keys are in `.env`, delete the `key` and `chatgpt_key` lines that still hold `#TODO`. The file contains the following sections:
+* **Alternatively, there is a configuration file**, [`simple.ini`](../examples/simple/conn/simple.ini), which you can use to set the configuration parameters. A key set in this file takes precedence over the environment variable. The file contains the following sections:
 ```
 [openai]
-key = #TODO: Add your OpenAI key here
+# key = <your OpenAI key>
 voice = alloy
 instructions = You are a helpful assistant.
 welcome_message = Hello! How can I help you?
+tools=/app/cfg/functions.py
+mcp_servers = shop
+
+[mcp:shop]
+command = python3 /app/cfg/mcp_server.py
 
 [deepgram]
-key = #TODO: Add your Deepgram key here
-chatgpt_key = #TODO: Add your OpenAI key here
+# key = <your Deepgram key>
+# chatgpt_key = <your OpenAI key>
 welcome_message = Hello! How can I help you?
 instructions = You are a helpful assistant.
 voice = aura-arcas-en
@@ -38,9 +43,9 @@ voice = aura-arcas-en
 [deepgram_native]
 
 [azure]
-key = #TODO: Add your Azure key here
+# key = <your Azure key>
 region = westeurope
-chatgpt_key = #TODO: Add your OpenAI key here
+# chatgpt_key = <your OpenAI key>
 welcome_message = Hello! How can I help you?
 ```
 
