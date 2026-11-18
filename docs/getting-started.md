@@ -12,15 +12,15 @@ git clone https://github.com/OpenSIPS/opensips-ai-voice-connector-ce.git
 cd opensips-ai-voice-connector-ce/examples/simple
 ```
 
-* **Edit the .env file and adjust the settings accordingly**
+* **Add your API keys to the .env file**
 ``` shell
-DEEPGRAM_API_KEY= # here you should put your Deepgram API key
-OPENAI_API_KEY= # here you should put your OpenAI API key
-MI_IP=127.0.0.1 # these are the default values
 MI_PORT=8080
+B2B_SIP_PORT=5060
+OPENAI_API_KEY= # here you should put your OpenAI API key
+DEEPGRAM_API_KEY= # here you should put your Deepgram API key
 ```
 
-* **Alternatively, there is a configuration file**, [`simple.ini`](../examples/simple/conn/simple.ini), which you can use to set the configuration parameters. The file contains the following sections:
+* **Alternatively, there is a configuration file**, [`simple.ini`](../examples/simple/conn/simple.ini), which you can use to set the configuration parameters. Values in this file override the environment variables, so if your keys are in `.env`, delete the `key` and `chatgpt_key` lines that still hold `#TODO`. The file contains the following sections:
 ```
 [openai]
 key = #TODO: Add your OpenAI key here
