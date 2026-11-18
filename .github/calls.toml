@@ -1,0 +1,8 @@
+# What main declines, or can't be judged on; every other call must pass.
+# https://github.com/jjaroztegi/rtpbench/blob/main/docs/ci.md
+
+[cases]
+cancel = "fail"               # inconclusive: the 200 OK comes 2 ms after the 180, before a CANCEL can
+dtmf-rfc4733 = "unsupported"  # no telephone-event in the answer
+dtmf-info = "unsupported"     # INFO answered 501
+timer = "unsupported"         # no Session-Expires in the 2xx

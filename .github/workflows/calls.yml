@@ -1,0 +1,42 @@
+name: calls
+
+# Places SIP calls against the connector built from the pull request, behind OpenSIPS as the
+# example configures it, with a mock OpenAI Realtime server as the engine: no API key, no secrets.
+# .github/calls.toml lists the calls main declines or that can't be judged; any other failure
+# fails the job.
+
+on:
+  pull_request:
+    paths:
+      - "*.py"
+      - src/**
+      - requirements.txt
+      - docker/**
+      - .github/calls.toml
+      - .github/workflows/calls.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: calls-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  calls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        persist-credentials: false
+    - uses: jjaroztegi/rtpbench@c20712c2b82f981fb1ef8a3269df422111b43fdf # v0.4.1
+      with:
+        target: aivc
+        mock: true
+        source: .
+        # main fails hold, hold-zero, reinvite-nosdp and codec-change: each goes in with its fix
+        only: greeting,bye,cancel,dtmf-rfc4733,dtmf-info,refer,refer-fail,refer-lost,codec-pcmu,codec-pcma,timer,ssrc-change,large-invite,reinvite,bye-lost,invite-retransmit
+        policy: .github/calls.toml
+        upload: all
