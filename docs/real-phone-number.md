@@ -129,29 +129,27 @@ trunk. When the person answers, the call with the connector ends.
 
 ## Provider Setup
 
-The settings that differ by provider. To add a provider, add a section with
-the same items.
+What the steps above need from each provider. For the steps in the provider's
+portal, follow its own guide. To add a provider, add a section with the same
+items.
 
 ### DIDWW
 
-Full guide: [OpenSIPS AI Voice Connector](https://doc.didww.com/integrations/opensips/ai-voice-connector.html)
+Portal steps: [OpenSIPS AI Voice Connector](https://doc.didww.com/integrations/opensips/ai-voice-connector.html)
 in the DIDWW documentation.
 
-* **Trunk**: **Voice > Inbound Trunks > Create New > SIP Trunk**, **Static
-  Endpoint**, **User Part of R-URI** `{DID}` (the default).
-* **RTP**: on the **Media & DTMF** tab, enable **RTP Ping** and
-  **Force Symmetric RTP**. RTP Ping makes DIDWW send the first RTP packet, which
-  the engine waits for.
+* **Trunk**: a Static Endpoint inbound SIP trunk. By default, it puts the
+  called number in the Request-URI.
 * **Signaling and media ranges**: `46.19.208.0/21`, `185.238.172.0/22`.
 * **`PROVIDER_REGEX`**: `^(46[.]19[.](20[89]|21[0-5])|185[.]238[.]17[2-5])[.]`
+* **RTP first**: enable **RTP Ping** and **Force Symmetric RTP** on the
+  inbound trunk.
 * **Transfer**:
-  * an outbound trunk with **Credentials & IP-Based** authentication;
-  * on the inbound trunk:
-    * **Max Transfers** `1`;
-    * the outbound trunk's credentials on the **Authorization** tab;
-    * **Network Protocol** **IPv4 only**;
-    * **Allowed RTP IP Addresses** empty, or the caller does not hear the person;
-  * `transfer_to` = `sip:+NUMBER@fra.eu.out.didww.com`, or the
+  * an outbound trunk with credentials and IP-based authentication;
+  * on the inbound trunk: **Max Transfers** `1`, the outbound trunk's
+    credentials for authorization, **IPv4 only**, and no **Allowed RTP IP
+    Addresses**, or the caller does not hear the person;
+  * `PROVIDER_HOST`: `fra.eu.out.didww.com`, or the
     [outbound endpoint](https://doc.didww.com/voice/outbound-trunks/outbound-sip-information.html#voice-out-signaling-endpoints)
     closest to your server.
 
