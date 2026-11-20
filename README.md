@@ -246,6 +246,7 @@ to an AI assistent - ask him a question and get a response back.
 Documentation pages contain the following topics:
 
 * [Getting Started](docs/getting-started.md) - How to get the engine up and running
+* [Real Phone Number](docs/real-phone-number.md) - Answer calls to a number from a SIP trunk provider
 * [Configuration](docs/config.md) - Information about configuration file
 * [Implementation](docs/implementation.md) - Implementation details
 * [AI Flavors](docs/ai-flavors.md) - Different AI flavors supported

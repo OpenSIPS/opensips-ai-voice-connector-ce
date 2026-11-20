@@ -63,3 +63,5 @@ docker compose up --build
 ```
 
 * **Now you should have the engine up and running**. You can test it by using a softphone like Zoiper or Linphone to send a call to OpenSIPS by dialling one of the supported flavors (i.e. `openai` - see [flavor selection](docs/ai-flavors.md#flavor-selection)). You should be able to talk to an AI assistant - ask him a question and get a response back.
+
+* **Next, answer a real phone number**: see [Real Phone Number](real-phone-number.md).
