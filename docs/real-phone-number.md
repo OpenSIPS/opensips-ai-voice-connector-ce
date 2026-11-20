@@ -71,10 +71,10 @@ RTP_MAX_PORT=35100
 ```
 
 * **In the `[openai]` section of [`conn/simple.ini`](../examples/simple/conn/simple.ini)**,
-  delete the `key` line and add `match = .*`, so that every number is answered
-  by OpenAI. A `key` value in the file overrides `OPENAI_API_KEY`.
+  add `match = .*`, so that every number is answered by OpenAI:
 ``` ini
 [openai]
+# key = <your OpenAI key>
 match = .*
 voice = alloy
 instructions = You are a helpful assistant.
@@ -163,5 +163,5 @@ in the DIDWW documentation.
 * **The call connects with no audio**: the RTP ports in the firewall, `RTP_IP`,
   whether the provider sends RTP first (see [How It Works](#how-it-works)), or
   a restriction on media addresses on the provider's trunk.
-* **The agent does not speak, and the engine logs `invalid_api_key`**: a `key`
-  line is left in `simple.ini`, or `OPENAI_API_KEY` is wrong.
+* **The agent does not speak, and the engine logs `invalid_api_key`**:
+  `OPENAI_API_KEY` in `.env` is wrong.
