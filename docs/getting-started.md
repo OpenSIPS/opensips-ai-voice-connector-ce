@@ -12,25 +12,30 @@ git clone https://github.com/OpenSIPS/opensips-ai-voice-connector-ce.git
 cd opensips-ai-voice-connector-ce/examples/simple
 ```
 
-* **Edit the .env file and adjust the settings accordingly**
+* **Add your API keys to the .env file**
 ``` shell
-DEEPGRAM_API_KEY= # here you should put your Deepgram API key
-OPENAI_API_KEY= # here you should put your OpenAI API key
-MI_IP=127.0.0.1 # these are the default values
 MI_PORT=8080
+B2B_SIP_PORT=5060
+OPENAI_API_KEY= # here you should put your OpenAI API key
+DEEPGRAM_API_KEY= # here you should put your Deepgram API key
 ```
 
-* **Alternatively, there is a configuration file**, [`simple.ini`](../examples/simple/conn/simple.ini), which you can use to set the configuration parameters. The file contains the following sections:
+* **Alternatively, there is a configuration file**, [`simple.ini`](../examples/simple/conn/simple.ini), which you can use to set the configuration parameters. A key set in this file takes precedence over the environment variable. The file contains the following sections:
 ```
 [openai]
-key = #TODO: Add your OpenAI key here
+# key = <your OpenAI key>
 voice = alloy
 instructions = You are a helpful assistant.
 welcome_message = Hello! How can I help you?
+tools=/app/cfg/functions.py
+mcp_servers = shop
+
+[mcp:shop]
+command = python3 /app/cfg/mcp_server.py
 
 [deepgram]
-key = #TODO: Add your Deepgram key here
-chatgpt_key = #TODO: Add your OpenAI key here
+# key = <your Deepgram key>
+# chatgpt_key = <your OpenAI key>
 welcome_message = Hello! How can I help you?
 instructions = You are a helpful assistant.
 voice = aura-arcas-en
@@ -38,9 +43,9 @@ voice = aura-arcas-en
 [deepgram_native]
 
 [azure]
-key = #TODO: Add your Azure key here
+# key = <your Azure key>
 region = westeurope
-chatgpt_key = #TODO: Add your OpenAI key here
+# chatgpt_key = <your OpenAI key>
 welcome_message = Hello! How can I help you?
 ```
 
